@@ -1,0 +1,90 @@
+{
+  "_meta": {
+    "version": "2026-10-30.1",
+    "verified_on": "2026-10-30",
+    "policy": "Unknown or unconfigured country => BLOCK. Rules are engineering controls, not legal advice. Any rule with status HUMAN_REVIEW must be cleared by a human (and legal advice where noted) before a send.",
+    "suppression_sla_business_days": 5,
+    "suppression_sla_note": "Strictest verified window across configured jurisdictions is Australia (5 working days). System target is immediate suppression on receipt."
+  },
+  "countries": {
+    "US": {
+      "law": "CAN-SPAM Act (15 U.S.C. 7701-7713)",
+      "source": "https://www.ftc.gov/business-guidance/resources/can-spam-act-compliance-guide-business",
+      "b2b_exempt": false,
+      "role_address": "ALLOW",
+      "named_person_address": "ALLOW",
+      "requires": ["accurate_headers", "non_deceptive_subject", "ad_disclosure", "physical_postal_address", "opt_out_mechanism"],
+      "opt_out_max_business_days": 10,
+      "block_if": []
+    },
+    "CA": {
+      "law": "CASL (S.C. 2010, c. 23)",
+      "source": "https://crtc.gc.ca/eng/com500/faq500.htm",
+      "b2b_exempt": false,
+      "role_address": "ALLOW_IF_CONDITIONS",
+      "named_person_address": "ALLOW_IF_CONDITIONS",
+      "conditions": ["address_conspicuously_published", "no_refusal_statement_near_address", "message_relevant_to_business_role"],
+      "requires": ["sender_identification", "opt_out_mechanism", "opt_out_valid_60_days"],
+      "opt_out_max_business_days": 10,
+      "block_if": ["refusal_statement_present"]
+    },
+    "GB": {
+      "law": "PECR reg. 22 + UK GDPR",
+      "source": "https://ico.org.uk/for-organisations/direct-marketing-and-privacy-and-electronic-communications/guide-to-pecr/electronic-and-telephone-marketing/electronic-mail-marketing/",
+      "b2b_exempt": true,
+      "b2b_exempt_note": "Corporate subscribers only (companies, LLPs, Scottish partnerships, government bodies). Sole traders and other partnerships are individual subscribers and need consent.",
+      "role_address": "ALLOW_IF_CONDITIONS",
+      "named_person_address": "HUMAN_REVIEW",
+      "named_person_note": "UK GDPR applies to named employee addresses: legitimate-interests assessment and Art. 14 notice required before first send. ICO guidance under review after the Data (Use and Access) Act.",
+      "conditions": ["recipient_is_corporate_subscriber"],
+      "requires": ["sender_identification", "opt_out_mechanism"],
+      "opt_out_max_business_days": 5,
+      "block_if": ["recipient_is_sole_trader_or_non_scottish_partnership"]
+    },
+    "DE": {
+      "law": "UWG s.7(2) no.2 + GDPR",
+      "source": "https://www.gesetze-im-internet.de/englisch_uwg/englisch_uwg.html",
+      "b2b_exempt": false,
+      "role_address": "BLOCK",
+      "named_person_address": "BLOCK",
+      "note": "Electronic-mail advertising without the addressee's prior express consent is an unacceptable nuisance; provision is not limited to consumers.",
+      "requires": [],
+      "opt_out_max_business_days": 5,
+      "block_if": ["always"]
+    },
+    "EU_DEFAULT": {
+      "law": "GDPR (Reg. 2016/679) + national ePrivacy transposition (Dir. 2002/58/EC art. 13)",
+      "source": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "b2b_exempt": null,
+      "role_address": "HUMAN_REVIEW",
+      "named_person_address": "HUMAN_REVIEW",
+      "note": "Treatment of legal persons is set nationally. Each EU state must get its own entry, verified against its national law, before sending. GDPR art. 21(3): objection to direct marketing is absolute.",
+      "requires": ["sender_identification", "opt_out_mechanism", "gdpr_art14_notice_if_named_person"],
+      "opt_out_max_business_days": 5,
+      "block_if": []
+    },
+    "AU": {
+      "law": "Spam Act 2003 (Cth)",
+      "source": "https://www.acma.gov.au/avoid-sending-spam",
+      "b2b_exempt": false,
+      "role_address": "HUMAN_REVIEW",
+      "named_person_address": "HUMAN_REVIEW",
+      "note": "Consent required (express or inferred). Inferred consent from conspicuous publication is Schedule 2 cl. 4; exact text NOT retrieved on 2026-10-30, so automatic eligibility is withheld.",
+      "requires": ["sender_identification", "contact_details_valid_30_days", "opt_out_mechanism"],
+      "opt_out_max_business_days": 5,
+      "block_if": []
+    },
+    "IN": {
+      "law": "DPDP Act 2023 + DPDP Rules 2025 (substantive obligations reported effective 2027-05-13)",
+      "source": "https://www.azbpartners.com/bank/update-indias-digital-personal-data-protection-framework-comes-into-effect/",
+      "source_grade": "secondary (Gazette notification not retrieved)",
+      "b2b_exempt": null,
+      "role_address": "HUMAN_REVIEW",
+      "named_person_address": "HUMAN_REVIEW",
+      "requires": ["sender_identification", "opt_out_mechanism"],
+      "opt_out_max_business_days": 5,
+      "block_if": []
+    }
+  },
+  "eu_member_states": ["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","GR","HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE"]
+}
