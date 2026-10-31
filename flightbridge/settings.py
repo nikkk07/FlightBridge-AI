@@ -24,7 +24,7 @@ class Settings:
     hostinger_base_url: str = "https://api.mail.hostinger.com"
     hostinger_token: str | None = None
     hostinger_mailbox_id: str | None = None
-    hostinger_sent_folder: str = "Sent"
+    hostinger_sent_folder: str | None = None   # None => resolve via specialUse \\Sent
     sender_display_name: str = "We One Aviation"
     crawler_user_agent: str = "FlightBridgeBot/0.1 (+https://weoneaviation.in/contact)"
 
@@ -36,7 +36,7 @@ class Settings:
             outbound_enabled=env.get("OUTBOUND_ENABLED", "false").strip() == "true",
             hostinger_token=env.get("HOSTINGER_MAIL_API_TOKEN") or None,
             hostinger_mailbox_id=env.get("HOSTINGER_MAILBOX_RESOURCE_ID") or None,
-            hostinger_sent_folder=env.get("HOSTINGER_SENT_FOLDER", "Sent"),
+            hostinger_sent_folder=env.get("HOSTINGER_SENT_FOLDER") or None,
         )
 
     @property

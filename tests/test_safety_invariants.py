@@ -47,7 +47,7 @@ def test_transport_refuses_construction_without_capability():
         HostingerMailApiTransport(base_url="https://x", token="t", mailbox_id="m", capability=object())
 
 
-def test_no_module_calls_requests_post_except_transport():
+def test_no_module_calls_requests_post_except_transport():  # tests may stub .post
     for f in PKG.rglob("*.py"):
         if f.name == "transports.py":
             continue
@@ -67,3 +67,22 @@ def test_shared_provider_domain_cannot_be_domain_suppressed():
         SuppressionIndex(domains=["gmail.com"])
     s = SuppressionIndex(contact_hashes=[email_hash("school1@gmail.com")])
     assert s.match("school2@gmail.com", "org-2") is None   # unrelated Gmail user unaffected
+
+
+def test_sent_folder_resolved_by_special_use_not_hardcoded():
+    from flightbridge.sending import service, transports
+
+    class Resp:
+        def __init__(self, data): self._d = data
+        def raise_for_status(self): pass
+        def json(self): return self._d
+
+    t = transports.HostingerMailApiTransport(base_url="https://x", token="t", mailbox_id="AC1",
+                                             capability=service._SEND_CAPABILITY)
+    calls = []
+    folders = {"data": [{"path": "INBOX", "specialUse": "\\Inbox"}, {"path": "INBOX.Sent", "specialUse": "\\Sent"}]}
+    t._s.get = lambda url, **k: (calls.append(url), Resp(folders))[1]
+    t._s.post = lambda url, **k: (calls.append(url), Resp({"data": [{"uid": 1}]}))[1]
+    assert t.special_folder("\\Sent") == "INBOX.Sent"
+    assert t.find_sent_by_ref("FB-0123456789AB") is True
+    assert calls[-1].endswith("/folders/INBOX.Sent/messages/search")

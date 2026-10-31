@@ -5,7 +5,8 @@ Hostinger Mail API facts used here (hostinger-mail-api SDK v1.18.2, generated fr
   POST /api/v1/mailboxes/{mailboxResourceId}/send  -> 204 No Content (no message id returned)
   body: to[], subject, text, displayName, inReplyTo{uid, folder}
   POST /api/v1/mailboxes/{id}/folders/{folder}/messages/search  body: {"body": "..."} substring match
-Live behaviour has NOT been exercised (no token available); run scripts/probe_hostinger.py first.
+Live read-only probe 2026-10-31 (info@weoneaviation.com): /me, /folders, /messages return 200; message fields have no
+thread id/references; Sent folder path is 'INBOX.Sent'. send/search have NOT been exercised live.
 """
 from __future__ import annotations
 
@@ -62,7 +63,17 @@ class HostingerMailApiTransport:
             raise DefiniteRejection(f"http_{r.status_code}")
         raise TransportError(f"http_{r.status_code}")  # 429/5xx: may or may not have been accepted
 
-    def find_sent_by_ref(self, ref_token: str, folder: str) -> bool:
+    def special_folder(self, special_use: str = "\\Sent") -> str:
+        """Resolve a folder path by IMAP special-use flag. Live probe 2026-10-31: Sent = 'INBOX.Sent' (not 'Sent')."""
+        r = self._s.get(f"{self._base}/api/v1/mailboxes/{self._mbx}/folders", timeout=self._timeout)
+        r.raise_for_status()
+        for f in r.json().get("data") or []:
+            if f.get("specialUse") == special_use:
+                return f["path"]
+        raise LookupError(f"no folder with specialUse {special_use}")
+
+    def find_sent_by_ref(self, ref_token: str, folder: str | None = None) -> bool:
+        folder = folder or self.special_folder("\\Sent")
         r = self._s.post(f"{self._base}/api/v1/mailboxes/{self._mbx}/folders/{quote(folder, safe='')}/messages/search",
                          json={"body": ref_token}, params={"per_page": 5}, timeout=self._timeout)
         r.raise_for_status()
