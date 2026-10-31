@@ -16,9 +16,14 @@ import sys
 import requests
 
 BASE = os.environ.get("HOSTINGER_BASE_URL", "https://api.mail.hostinger.com")
-TOKEN = os.environ.get("HOSTINGER_MAIL_API_TOKEN")
-if not TOKEN:
-    sys.exit("set HOSTINGER_MAIL_API_TOKEN")
+TOKEN = os.environ.get("HOSTINGER_MAIL_API_TOKEN", "")
+if not TOKEN.strip():
+    sys.exit("HOSTINGER_MAIL_API_TOKEN is empty")
+# Safe diagnostics only: never print the token itself.
+print(f"token check: length={len(TOKEN)}, has_whitespace={any(c.isspace() for c in TOKEN)}, "
+      f"looks_like_command={'python' in TOKEN or 'scripts/' in TOKEN}")
+if any(c.isspace() for c in TOKEN):
+    sys.exit("Token contains spaces/newlines - it was probably captured from the wrong pasted line. Re-enter it alone.")
 S = requests.Session()
 S.headers.update({"Authorization": f"Bearer {TOKEN}", "Accept": "application/json"})
 
@@ -26,7 +31,9 @@ S.headers.update({"Authorization": f"Bearer {TOKEN}", "Accept": "application/jso
 def get(path, **params):
     r = S.get(BASE + path, params=params, timeout=20)
     print(f"GET {path} -> {r.status_code}")
-    r.raise_for_status()
+    if r.status_code >= 400:
+        body = r.text[:500].replace(TOKEN, "<redacted>")
+        sys.exit(f"Hostinger error body: {body}")
     return r.json()
 
 
