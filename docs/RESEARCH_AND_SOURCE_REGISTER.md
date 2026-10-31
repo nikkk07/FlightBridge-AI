@@ -1,6 +1,6 @@
 # Research and Source Register
 
-All sources were accessed on **2026-10-30**. "Page date" is the date shown on the source itself, where one is shown.
+All sources were accessed on **2026-10-30**; rows marked † were added or corrected on **2026-10-31**. "Page date" is the date shown on the source itself, where one is shown.
 
 | ID | Source | URL | Page date | Exact item relied on | Feature affected | Grade |
 |---|---|---|---|---|---|---|
@@ -14,7 +14,7 @@ All sources were accessed on **2026-10-30**. "Page date" is the date shown on th
 | S08 | Hostinger Mail API product page | https://www.hostinger.com/mail-api | n/a | Per-mailbox pricing; 1,000/3,000 emails/day; not for bulk | Email channel, cost | V |
 | S09 | Hostinger Email SDKs | https://docs.hostinger.com/api-reference/email-sdks | 2026-10-27 | Token scope; send endpoint; inReplyTo; 429 | Email client | V |
 | S10 | hostinger-mail-api (PyPI) | https://pypi.org/project/hostinger-mail-api/ | v1.18.2, 2026-10-09 | Method list; no thread API | Threading | V |
-| S11 | Hostinger Agentic Mail | https://docs.hostinger.com/emails/agentic-mail | 2026-10-27 | Webhook secret; signature scheme undocumented | Webhooks | V |
+| S11 | Hostinger Agentic Mail | https://docs.hostinger.com/emails/agentic-mail | 2026-10-27 | Webhook secret (auth scheme confirmed in S36) | Webhooks | V |
 | S12 | Hostinger device setup | https://docs.hostinger.com/emails/setup-devices | 2026-07-22 | IMAP 993 / SMTP 465 SSL | Fallback | V |
 | S13 | Hostinger Email limits | https://www.hostinger.com/support/4625828-how-to-create-and-manage-hostinger-email/ | n/a | Per-mailbox daily limits; 100 recipients/message | Throttling | V |
 | S14 | MoCA FTO page | https://www.civilaviation.gov.in/node/4635 | 27/10/2026 | 41 FTOs, 63 bases, "Till 02 July 2026" | IN discovery | V |
@@ -35,9 +35,13 @@ All sources were accessed on **2026-10-30**. "Page date" is the date shown on th
 | S29 | Spam Act 2003 | https://www.legislation.gov.au/C2004A01214/latest/text | n/a | Sched. 2 cl. 4 heading only | AU rule | P |
 | S30 | UWG (English) | https://www.gesetze-im-internet.de/englisch_uwg/englisch_uwg.html | n/a | §7(2) no.2 prior express consent | DE rule | V |
 | S31 | GDPR | https://eur-lex.europa.eu/eli/reg/2016/679/oj | n/a | Art. 14, 21(3) | EU rule | P (not re-fetched) |
-| S32 | AZB & Partners on DPDP Rules | https://www.azbpartners.com/bank/update-indias-digital-personal-data-protection-framework-comes-into-effect/ | 2025-11-19 | Phases: 13 Nov 2025 / 13 Nov 2026 / 13 May 2027 | IN rule | S |
-| S33 | RFC 7489 (DMARC) | https://www.rfc-editor.org/rfc/rfc7489#section-6.6.3 | 2015 | Multiple DMARC records ⇒ no DMARC | DNS fix | P (not re-fetched) |
+| S32† | G.S.R. 843(E) — DPDP Act commencement (MeitY copy of Gazette) | https://www.meity.gov.in/static/uploads/2025/11/c56ceae6c383460ca69577428d36828b.pdf | 13 Nov 2025 | Three commencement groups (publication / +1 yr / +18 months) | IN rule | V |
+| S32a† | G.S.R. 846(E) — DPDP Rules 2025 (Gazette No. 760) | https://www.meity.gov.in/static/uploads/2025/11/53450e6e5dc0bfa85ebd78686cadad39.pdf | 13 Nov 2025 | Rule 1(2)–(4) commencement | IN rule | V |
+| S32b† | S.O. 5458(E) — DPDP Removal of Difficulties Order 2026 | https://www.meity.gov.in/static/uploads/2026/10/daf495a7b5798a3dfa72a944b51fc176.pdf | 5–6 Oct 2026 | No commencement change | IN rule | V |
+| S33† | RFC 9989 (DMARC; obsoletes RFC 7489, 9091) | https://www.rfc-editor.org/info/rfc9989 | 2026-05-19 | "If multiple DMARC Policy Records are returned for a single target, they are all discarded" | DNS fix | V |
 | S34 | Render free tier | https://render.com/docs/free | n/a | 15-min spin-down; not for production | Hosting | V |
 | S35 | Supabase pricing | https://supabase.com/pricing | n/a | 500 MB; 1-week pause; no free backups; Pro $25 | DB | V |
 | O1 | DNS (Cloudflare DoH) | — | 2026-10-30 06:46 UTC | MX/NS/SPF/DMARC/DKIM records (report F1) | Email channel | O |
 | O2 | Repo `nikkk07/CRM` | — | HEAD 31cc1da | FastAPI, APScheduler, Render free, migrations ≤035 | Integration | O |
+| S36† | hostinger-mail-api SDK v1.18.2 generated models (wheel downloaded from PyPI and inspected) | https://pypi.org/project/hostinger-mail-api/1.18.2/ | 2026-10-09 | No thread field; webhook auth `Authorization: Bearer <secret>`; event enum `message.received`; send → 204 | Threading, webhooks, idempotency | V (code inspection, not live) |
+| S37† | Hostinger: Set up a domain for Hostinger Mail | https://www.hostinger.com/support/8650765-set-up-a-domain-for-hostinger-mail/ | 2026-10-29 | No mention of subdomains | Subdomain plan | V (absence) |

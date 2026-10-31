@@ -1,4 +1,4 @@
-# Technical Feasibility Matrix — v1b (2026-10-30)
+# Technical Feasibility Matrix — v2 (2026-10-31)
 
 Legend: ✅ feasible now · 🟡 feasible with a condition · 🔴 not feasible as specified · ⏸ blocked on your decision. Evidence IDs refer to `PHASE_1B_RESEARCH_REPORT.md`.
 
@@ -13,12 +13,12 @@ Legend: ✅ feasible now · 🟡 feasible with a condition · 🔴 not feasible 
 | 7 | Extract public emails from school websites | ✅ | robots-aware crawler, contact/admissions pages, source URL + timestamp per address | Never guess addresses | F8 |
 | 8 | Confirm mailbox existence | 🔴 | — | Syntax, MX and SMTP checks only. "Confirmed" comes only from delivery/bounce outcome | Phase 1 |
 | 9 | Regulatory status verification | 🟡 | Automated for IN/UK PDFs; human-confirmed for US/CA/AU | Status stored with source URL and check date; revalidate monthly | F4 |
-| 10 | Jurisdiction eligibility + suppression gate | ✅ **implemented** | `flightbridge/compliance/eligibility.py` + `config/jurisdictions.json` | 13/13 tests pass; unknown country ⇒ BLOCK; EU states other than DE need per-state entries | F5 |
+| 10 | Jurisdiction gate + content-readiness gate + 3-scope suppression | ✅ **implemented** | `compliance/jurisdiction.py`, `compliance/content.py`, `compliance/suppression.py`, DB trigger `outbound_guard` | Legal conditions need unexpired evidence of an allowed method; every content requirement is validated against the exact body; parametrized tests prove each missing condition/requirement blocks | F5 |
 | 11 | Send / reply via Hostinger Mail API | ⏸ | REST `POST /api/v1/mailboxes/{id}/send`, `inReplyTo` | Separate paid product; MX of both domains is **not** Hostinger; needs a dedicated mailbox or subdomain | F1, F2 |
-| 12 | Inbox monitoring | 🟡 | Webhook as a hint, then authenticated re-fetch; polling reconciliation | Webhook signature scheme undocumented; thread model built locally from headers | F2 |
+| 12 | Inbox monitoring | 🟡 | `message.received` webhook (Bearer-secret auth) as a hint, then authenticated re-fetch; polling reconciliation | API models expose no thread id; local threading from Message-ID/In-Reply-To + Ref token unless a live probe proves otherwise | F2 |
 | 13 | IMAP/SMTP fallback | 🟡 | `imap.hostinger.com:993` / `smtp.hostinger.com:465` for a Hostinger box; otherwise the current host's settings | Current .in mail host is `host2.dnsinweb.com`, limits unknown | F1, F2 |
-| 14 | Domain authentication | 🟡 | Fix duplicate DMARC on .in; dedicated subdomain with SPF/DKIM/DMARC | DNS edits need owner access at dnshorizon/techvyapar | F1 |
-| 15 | CRM integration | ✅ | Native: new tables + FastAPI routes + Vercel pages in `nikkk07/CRM` (migration 036+) | Your own code; no vendor API constraints | F7 |
+| 14 | Domain authentication | 🟡 | Fix duplicate DMARC on .in (RFC 9989 discards both); subdomain only after Hostinger confirms support | Subdomain = risk reduction, not isolation guarantee; no DNS changed | F1 |
+| 15 | CRM integration | ✅ **implemented** | Migration 036 (schema `flightbridge`), `flightbridge_routes.py`, Partnerships tab | 9 CRM tests pass; existing routes verified; frontend builds | F7 |
 | 16 | Durable jobs / recovery | 🟡 | Postgres job table with leases + idempotency keys | Render free tier spins down and is "not for production"; paid instance or external scheduler needed before sending | F7 |
 | 17 | Backups | 🟡 | Supabase Pro ($25/mo) | Free plan has no automatic backups and pauses after 1 week idle | F7 |
 | 18 | AI classification / drafting | ✅ | Existing Groq key or another provider; deterministic rules first | Needs an evaluation set before any GREEN auto-send | F7 |

@@ -1,6 +1,6 @@
 # FlightBridge AI — Phase 1b Research Report
 
-Verification date for every finding: **2026-10-30** (IST). No email was sent and no external outreach was activated.
+Verification date for every finding: **2026-10-30** (IST). **Revised 2026-10-31** with the corrections listed in `docs/PHASE_2_ARCHITECTURE.md` (Corrections section). No email was sent and no external outreach was activated.
 Grades: **V** = verified on an official primary source this session · **P** = partially verified (primary page fetched but the exact clause was not retrievable) · **S** = secondary source only · **O** = direct observation (DNS query, repo inspection).
 
 ---
@@ -20,8 +20,9 @@ Grades: **V** = verified on an official primary source this session · **P** = p
 
 **Implications**
 - The brief says the mailbox is on Hostinger. Neither domain's MX record points to Hostinger, so a Hostinger mailbox on these domains would not receive mail today. Hostinger Mail API cannot read the live inbox unless MX is changed.
-- With two DMARC records on .in, DMARC is effectively not applied. RFC 7489 §6.6.3 says policy discovery stops when more than one record is found ([RFC 7489](https://www.rfc-editor.org/rfc/rfc7489#section-6.6.3)). Fix: keep one record. Do not change it until the owner of `dnshorizon` DNS confirms which mail sources are legitimate.
-- **Recommendation:** use a dedicated outreach subdomain, for example `partners.weoneaviation.in`, with its own MX, SPF, DKIM and DMARC. This keeps the main domain's reputation and existing mail flow safe, and lets a Hostinger Mail API mailbox exist without moving the main domain's MX. This depends on your decision.
+- With two DMARC records on .in, DMARC is effectively not applied. **RFC 9989** (DMARC, Proposed Standard, May 2026, obsoletes RFC 7489 and RFC 9091) says: "If multiple DMARC Policy Records are returned for a single target, they are all discarded" (DNS Tree Walk, sec. 4.10) ([RFC 9989](https://www.rfc-editor.org/info/rfc9989)). Fix: keep one record. Do not change it until the owner of `dnshorizon` DNS confirms which mail sources are legitimate.
+- **Option (not a recommendation yet):** a dedicated outreach subdomain such as `partners.weoneaviation.in` with its own MX, SPF, DKIM and DMARC. This is **risk reduction, not a guarantee**: mailbox providers may still weigh the organisational domain's reputation, and RFC 9989's tree walk shares DMARC policy across the organisational domain unless the subdomain publishes its own record.
+- **Hostinger subdomain support is UNCONFIRMED.** Hostinger's "Set up a domain for Hostinger Mail" article (modified 2026-10-29) does not mention subdomains ([Hostinger](https://www.hostinger.com/support/8650765-set-up-a-domain-for-hostinger-mail/)). No DNS change should be planned until Hostinger support or hPanel confirms that a subdomain can be added as a mail domain with Mail API access. **No DNS was changed.**
 
 ## F2. Hostinger Mail API is a separately priced, per-mailbox product — V
 
@@ -32,7 +33,9 @@ Grades: **V** = verified on an official primary source this session · **P** = p
 | Tokens are created under **Agentic Mail → API access** and scoped to one order, optionally to specific mailboxes | [docs.hostinger.com/api-reference/email-sdks](https://docs.hostinger.com/api-reference/email-sdks) (updated 2026-10-27) | Least-privilege token per mailbox. Store as `HOSTINGER_MAIL_API_TOKEN` in Render env, never in git. |
 | 27 operations. Send is `POST /api/v1/mailboxes/{mailboxResourceId}/send`; replies use `inReplyTo` | same | Reply threading works through standard headers. |
 | SDK v1.18.2 (2026-10-09) has **no thread methods**; it has search_messages, get_message_source, webhooks and quota | [pypi.org/project/hostinger-mail-api](https://pypi.org/project/hostinger-mail-api/) | We build our own threading from `Message-ID`, `In-Reply-To` and `References`, stored in Supabase. |
-| Webhooks have a one-time secret. The **signature header and algorithm are undocumented** | [docs.hostinger.com/emails/agentic-mail](https://docs.hostinger.com/emails/agentic-mail); WebhooksApi.md | A webhook is only a "new mail" hint. Each message is re-fetched by ID over the authenticated API before any action. Polling reconciliation runs every N minutes. |
+| **Corrected 2026-10-31 from the SDK's generated models (v1.18.2):** webhooks authenticate with `Authorization: Bearer <secret>` (not an HMAC signature). The only event is `message.received` | `hostinger_mail_api/models/v1_webhooks_create_request.py` (field `url` description; events enum) | The receiver compares the bearer secret in constant time, then re-fetches the message by UID over the authenticated API before acting. |
+| **No thread identifier exists in the API models.** The message resource has `messageId` and `inReplyTo` but no `threadId` or `references`. Search filters (`header`, `subject`, `body`, ...) have no thread filter. The product page's marketing example shows `thread_id` in a webhook payload; the webhook payload schema is not in the SDK | `v1_folder_messages_message.py`, `v1_folder_messages_search_request.py`; [hostinger.com/mail-api](https://www.hostinger.com/mail-api) | Threading is built locally from `Message-ID`/`In-Reply-To` plus our `Ref:` token. A `provider_thread_id` column is reserved and will be used only if `scripts/probe_hostinger.py` and a live webhook capture prove the field exists. **Not tested live: no token is available.** |
+| `send` returns **204 No Content**, so no Message-ID is returned | `api/send_api.py` (`_response_types_map`) | Each outbound carries a unique `Ref: FB-xxxxxxxxxxxx`. After an ambiguous failure, the message is marked `send_unknown` and never auto-retried; reconciliation searches the Sent folder body for the token. |
 | `429` means back off. No numeric API rate limit is published | email-sdks page | Exponential backoff and a client-side token bucket. |
 | IMAP `imap.hostinger.com:993` and SMTP `smtp.hostinger.com:465`, both SSL | [docs.hostinger.com/emails/setup-devices](https://docs.hostinger.com/emails/setup-devices) (updated 2026-07-22) | Fallback path. Only valid for mailboxes hosted at Hostinger (see F1). |
 | Business Email limits apply per mailbox: 100 recipients per message; 1,000/day Starter, 3,000/day Premium, 100/day free and trial | [Hostinger support: parameters and limits](https://www.hostinger.com/support/4625828-how-to-create-and-manage-hostinger-email/) | Our sending cap is far below these limits (see F9). |
@@ -81,7 +84,7 @@ Grades: **V** = verified on an official primary source this session · **P** = p
 
 ## F5. Email law by jurisdiction — implemented as code
 
-Implemented in `config/jurisdictions.json` and `flightbridge/compliance/eligibility.py`. Tests: `tests/test_eligibility.py`, **13/13 passing**.
+Superseded on 2026-10-31 by two separate gates: `flightbridge/compliance/jurisdiction.py` (legal conditions must be evidenced) and `flightbridge/compliance/content.py` (every required element validated in the exact body). Rules: `config/jurisdictions.json` v2. Tests: `tests/test_jurisdiction.py`, `tests/test_content.py`.
 
 | Country | Rule (source) | Gate result |
 |---|---|---|
@@ -91,13 +94,27 @@ Implemented in `config/jurisdictions.json` and `flightbridge/compliance/eligibil
 | Germany | UWG §7(2) no.2: e-mail advertising without "prior express consent" is an unacceptable nuisance, and it is not limited to consumers ([UWG English](https://www.gesetze-im-internet.de/englisch_uwg/englisch_uwg.html)) — V | BLOCK |
 | Other EU | GDPR plus national ePrivacy rules. Treatment of legal persons is set nationally — P | REVIEW until each state is configured |
 | Australia | Spam Act: consent required. Unsubscribe honoured within **5 working days** ([ACMA](https://www.acma.gov.au/avoid-sending-spam)) — V. Sched. 2 cl. 4 (conspicuous publication) text not retrieved — P | REVIEW |
-| India | DPDP Rules 2025 notified 13 Nov 2025. Substantive obligations reported from **13 May 2027** ([AZB & Partners](https://www.azbpartners.com/bank/update-indias-digital-personal-data-protection-framework-comes-into-effect/)) — **S** (Gazette not retrieved) | REVIEW |
+| India | **Official:** G.S.R. 843(E) (Act commencement) and G.S.R. 846(E) (DPDP Rules 2025), both dated 13 Nov 2025, Gazette of India Extraordinary No. 760 (MeitY copies). Phases: on publication / +1 year / +18 months (see table below) — V | REVIEW |
 | Any other country | — | BLOCK |
 
 **Suppression design:**
 - Address and domain suppression are checked by SHA-256 of the normalised address.
 - Opt-out takes effect on receipt. The hard SLA is **5 business days**, the strictest verified window (AU).
 - Suppression records are never deleted. Records of "objection to direct marketing" are kept to honour GDPR Art. 21(3) (P).
+
+### F5a. India DPDP commencement (official Gazette, verified 2026-10-31)
+
+| Notification | What it brings into force | Date |
+|---|---|---|
+| G.S.R. 843(E), 13 Nov 2025 ([MeitY copy](https://www.meity.gov.in/static/uploads/2025/11/c56ceae6c383460ca69577428d36828b.pdf); Gazette original egazette.gov.in/WriteReadData/2025/267647.pdf, robots-blocked) | Act s.1(2), s.2, ss.18–26, 35, 38–43, 44(1), 44(3) | On publication: **13 Nov 2025** |
+| | s.6(9), s.27(1)(d) (Consent Manager provisions) | +1 year: **13 Nov 2026** |
+| | ss.3–5, 6(1)–(8), 6(10), 7–17, 27 (except 27(1)(d)), 28–34, 36, 37, 44(2) (notice, consent, Data Fiduciary duties, rights, penalties) | +18 months: **13 May 2027** |
+| G.S.R. 846(E), DPDP Rules 2025, 13 Nov 2025, Gazette No. 760 ([MeitY copy](https://www.meity.gov.in/static/uploads/2025/11/53450e6e5dc0bfa85ebd78686cadad39.pdf)) | Rule 1(2): rules 1, 2, 17–21 on publication. Rule 1(3): rule 4 one year after. Rule 1(4): "Rules 3, 5 to 16, 22 and 23 shall come into force eighteen months after the date of publication" | 13 Nov 2025 / 13 Nov 2026 / 13 May 2027 |
+| S.O. 5458(E), 5 Oct 2026 (Removal of Difficulties Order) ([MeitY](https://www.meity.gov.in/static/uploads/2026/10/daf495a7b5798a3dfa72a944b51fc176.pdf)) | Wording fixes to s.9(1) and s.10(2)(c)(ii). **No commencement date changed** | 6 Oct 2026 |
+
+Dates are computed from the publication date (13 Nov 2025). Note that PIB's explainer says "notified on 14 November 2025", while the Gazette header reads Thursday, 13 November 2025. The Gazette governs.
+
+**Implication:** the notice and consent duties (s.5, s.6, Rule 3) bind We One as a Data Fiduciary for any named Indian contact from 13 May 2027. India stays HUMAN_REVIEW until a lawful basis per contact type is decided.
 
 ## F6. Company facts must be reconciled before outreach — O
 
@@ -133,7 +150,8 @@ The pilot is capped at **≤20 new contacts per day per mailbox**, far below the
 - Spam Act Sched. 2 cl. 4 text.
 - India Gazette G.S.R. for the DPDP Rules.
 - Current Render paid pricing.
-- Hostinger webhook event list and signature scheme (undocumented).
+- Hostinger webhook payload fields (whether a `thread_id` is delivered). The event list (`message.received`) and Bearer-secret auth were verified from the SDK models on 2026-10-31; live behaviour is untested.
+- Whether Hostinger Mail accepts a subdomain as a mail domain.
 - Whether an existing Hostinger plan includes Mail API (needs a check in your hPanel).
 
 ## Pending your decisions (blocking Phase 2 scope only)
