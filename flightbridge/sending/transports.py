@@ -45,7 +45,8 @@ class HostingerMailApiTransport:
         self._mbx = quote(mailbox_id, safe="")
         self._timeout = timeout
         self._s = requests.Session()
-        self._s.headers.update({"Authorization": f"Bearer {token}", "Accept": "application/json"})
+        self._s.headers.update({"Authorization": f"Bearer {token}", "Accept": "application/json",
+                                "User-Agent": "hostinger_mail_api-python/1.18.2"})  # default UA is Cloudflare-blocked (observed 2026-10-31)
 
     def send(self, req: SendRequest) -> None:
         payload = {"to": [req.to], "subject": req.subject, "text": req.text, "displayName": req.display_name}

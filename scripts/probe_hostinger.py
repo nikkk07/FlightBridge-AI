@@ -25,15 +25,21 @@ print(f"token check: length={len(TOKEN)}, has_whitespace={any(c.isspace() for c 
 if any(c.isspace() for c in TOKEN):
     sys.exit("Token contains spaces/newlines - it was probably captured from the wrong pasted line. Re-enter it alone.")
 S = requests.Session()
-S.headers.update({"Authorization": f"Bearer {TOKEN}", "Accept": "application/json"})
+# Same User-Agent as Hostinger's official SDK (api_client.py v1.18.2); the default python-requests UA is blocked by Cloudflare.
+S.headers.update({"Authorization": f"Bearer {TOKEN}", "Accept": "application/json",
+                  "User-Agent": "hostinger_mail_api-python/1.18.2"})
 
 
 def get(path, **params):
     r = S.get(BASE + path, params=params, timeout=20)
     print(f"GET {path} -> {r.status_code}")
     if r.status_code >= 400:
-        body = r.text[:500].replace(TOKEN, "<redacted>")
-        sys.exit(f"Hostinger error body: {body}")
+        body = r.text.replace(TOKEN, "<redacted>")
+        if "cloudflare" in body.lower():
+            import re
+            ray = re.search(r"Ray ID: <strong[^>]*>([0-9a-f]+)", body)
+            sys.exit(f"Blocked by Cloudflare before reaching Hostinger (Ray ID: {ray.group(1) if ray else 'n/a'}).")
+        sys.exit(f"Hostinger error body: {body[:500]}")
     return r.json()
 
 
