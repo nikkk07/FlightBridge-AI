@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../auth';
+import { DEMO } from '../api';
 
 export default function Login() {
   const { signIn } = useAuth();
@@ -41,7 +42,7 @@ export default function Login() {
       <section className="login-form">
         <form onSubmit={submit} noValidate>
           <h2>Sign in</h2>
-          <p className="muted">Use your CRM login ID and password.</p>
+          <p className="muted">{DEMO ? 'Preview: type anything to look around.' : 'Use your CRM login ID and password.'}</p>
           <label>
             Login ID
             <input value={loginId} onChange={(e) => setLoginId(e.target.value)} autoComplete="username" autoFocus required />

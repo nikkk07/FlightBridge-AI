@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth';
-import { api } from './api';
+import { api, DEMO } from './api';
 import Login from './pages/Login';
 import Overview from './pages/Overview';
 import Schools from './pages/Schools';
@@ -76,6 +76,7 @@ function Shell() {
         </div>
       </aside>
       <main className="main">
+        {DEMO && <p className="demo-strip">Preview with sample data. School names and approval numbers are the real UK CAA register; contacts, emails and replies are invented. Nothing here is saved or sent.</p>}
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/schools" element={<Schools />} />

@@ -331,3 +331,6 @@ details summary { cursor: pointer; font-size: 14px; color: var(--blue); }
   .detail { padding: 20px 18px 40px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+.demo-strip { margin: 0; padding: 8px 40px; background: var(--amber-soft); color: #6d470c; font-size: 13px; border-bottom: 1px solid #efdcb6; }
+@media (max-width: 860px) { .demo-strip { padding: 8px 16px; } }

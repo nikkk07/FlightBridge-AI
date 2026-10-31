@@ -35,7 +35,9 @@ async function request(path, { method = 'GET', body, auth = true } = {}) {
   throw new ApiError(msg, res.status, 'http');
 }
 
-export const api = {
+import { demoApi } from './demo';
+
+const realApi = {
   login: (login_id, password) => request('/api/auth/login', { method: 'POST', body: { login_id, password }, auth: false }),
   me: () => request('/api/flightbridge/me'),
   summary: () => request('/api/flightbridge/summary'),
@@ -62,3 +64,6 @@ export const api = {
   team: () => request('/api/flightbridge/team'),
   setRole: (id, role) => request(`/api/flightbridge/team/${id}/role`, { method: 'POST', body: { role } }),
 };
+
+export const DEMO = import.meta.env.VITE_DEMO === '1';
+export const api = DEMO ? demoApi : realApi;
