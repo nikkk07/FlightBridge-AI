@@ -25,3 +25,9 @@ Flying-school partnership intelligence and outreach platform for We One Aviation
 Tests: start a Postgres, then `FB_TEST_ADMIN_URL=postgresql://postgres@/postgres?host=/tmp&port=55432 python3 -m pytest -q`. DB tests skip without Postgres.
 
 Requirements: Python 3.11+, `psycopg[binary]`, `requests`, `pytest`.
+
+## Web app (`web/`)
+
+Standalone FlightBridge workspace (Vite + React), live at https://flying.weoneaviation.in once DNS is added. It signs in with CRM accounts and calls the CRM backend (`/api/auth/login`, `/api/flightbridge/*`), so it shares data with the CRM's Partnerships tab. Roles: CRM Admin department or `permissions.flightbridge = "admin"` → admin; `"researcher"` → can verify schools and record evidence, cannot approve emails, templates or sending.
+
+Local: `cd web && npm install && VITE_API_URL=http://localhost:8000 npm run dev`. Vercel: root directory `web`, env `VITE_API_URL`.
