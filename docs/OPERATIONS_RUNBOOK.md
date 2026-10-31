@@ -36,7 +36,7 @@ Updated 2026-10-31. Safe defaults: `DRY_RUN=true`, `OUTBOUND_ENABLED=false`, kil
 
 1. Approve a first-email template in the CRM.
 2. Route mail for the sending domain to Hostinger and authorise Hostinger in SPF (DNS change; needs your approval). Today `weoneaviation.com` MX = `weoneaviation.com` (129.121.97.39) and SPF authorises only that IP, so Hostinger cannot see replies and its sends would fail SPF.
-3. Apply CRM migrations 036 and 037 in Supabase and merge the CRM branch.
+3. Apply CRM migrations 037 and 038 in Supabase (036 is your own job_lease migration) and merge the CRM branch.
 4. Choose where the worker runs (Mac Mini on demand, or a paid always-on server).
 5. Pilot list of 10–20 schools you choose. Then set `DRY_RUN=false`, `OUTBOUND_ENABLED=true` and release the kill switch. All three are needed.
 

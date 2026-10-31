@@ -13,7 +13,7 @@ Flying-school partnership intelligence and outreach platform for We One Aviation
 | `docs/COMPANY_FACTS_RECONCILIATION.md` | Approved-for-outreach fact set |
 | `config/jurisdictions.json` | Legal conditions, evidence policies, content requirements per country |
 | `config/sender_profile.json` | Footer values; nulls block sending where required |
-| `db/migrations/001_flightbridge_schema.sql` | Canonical schema (copied to CRM as 036) |
+| `db/migrations/001_flightbridge_schema.sql` | Canonical schema (copied to CRM as 037; 002 as 038) |
 | `flightbridge/compliance/` | Gate 1 jurisdiction, gate 2 content, suppression |
 | `flightbridge/sending/` | The only sending service and transports |
 | `flightbridge/research/` | Safe fetcher, crawler, extractor, registers, qualification, pipeline |

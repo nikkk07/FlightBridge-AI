@@ -88,7 +88,7 @@ pending_checks ──gates──► authorized ──(DRY_RUN | !OUTBOUND_ENABLE
 
 The DB trigger enforces: terminal states cannot reopen; subject, body and recipient are immutable; `authorized` requires fresh passing checks for this row and content hash; a reply without an approval task cannot progress (auto-reply disabled in this release).
 
-## 4. Database (migration `db/migrations/001_flightbridge_schema.sql` = CRM `036_flightbridge_schema.sql`)
+## 4. Database (migration `db/migrations/001_flightbridge_schema.sql` = CRM `037_flightbridge_schema.sql`; 002 = CRM `038`)
 
 The schema is `flightbridge`, so it cannot collide with CRM tables. It is additive and idempotent (applied twice in tests). The only references into `public` are FKs to `public.employee(id)`. A test confirmed the public schema is byte-for-byte unchanged after applying it on top of CRM migrations 001–035.
 
@@ -118,14 +118,14 @@ The schema is `flightbridge`, so it cannot collide with CRM tables. It is additi
   - suppression (3 scopes)
   - kill switch
 
-  It never writes `outbound_message` and never sends. If migration 036 is missing, every endpoint returns 503 and the rest of the CRM is unaffected (tested).
+  It never writes `outbound_message` and never sends. If migrations 037–038 are missing, every endpoint returns 503 and the rest of the CRM is unaffected (tested).
 - **Frontend:** `components/FlightBridge.jsx`, a lazy-loaded "Partnerships" tab visible to Admin only. Production build passes.
 - **Tests:** `CRM/backend/tests/test_flightbridge_routes.py`, 9 passing (existing routes still registered, 403 for non-Admin, 409 on double decision, shared-provider suppression refused, 503 without schema).
 
 ## 6. Research pipeline and dry run
 
 ```
-python -m flightbridge.cli migrate                      # same SQL as CRM 036
+python -m flightbridge.cli migrate                      # same SQL as CRM 037 + 038
 python -m flightbridge.cli import-register rows.csv     # validated rows; FAA/TC/CASA need checked_by
 python -m flightbridge.cli research <org_id>            # robots-aware crawl, emails + evidence
 python -m flightbridge.cli qualify <org_id> --cpl --intl
@@ -146,7 +146,7 @@ With the real `config/sender_profile.json`, US/CA outreach is **blocked** until 
 | Hostinger subdomain support | Any DNS plan | Ask Hostinger support, or check hPanel → Emails → Add domain |
 | Postal address, contact mailbox, privacy notice (`sender_profile.json`) | All live sends | Sign off `COMPANY_FACTS_RECONCILIATION.md` |
 | Hosting for the worker | Scheduled processing | Decide: run it on demand (Mac Mini / CLI) or approve a paid always-on instance |
-| Apply migration 036 in Supabase | CRM Partnerships tab | Paste the file into the Supabase SQL editor (additive; creates schema `flightbridge` only) |
+| Apply migrations 037 and 038 in Supabase | CRM Partnerships tab | Paste the file into the Supabase SQL editor (additive; creates schema `flightbridge` only) |
 | Inbound mail ingestion, AI classification, follow-ups | Phases 5–7 | Comes after the probe |
 
 
@@ -156,7 +156,7 @@ The owner signed off the company facts (address with PIN 110077, founded 2009, p
 
 | Component | Files | Tests |
 |---|---|---|
-| Owner-pasted templates (versioned, validated, one approved per kind) | `outreach/templates.py`, migration 002 / CRM 037, CRM `flightbridge_template_rules.py` (copy, drift-checked by `scripts/check_crm_copies.py`) | `test_templates.py`, CRM template tests |
+| Owner-pasted templates (versioned, validated, one approved per kind) | `outreach/templates.py`, migration 002 / CRM 038, CRM `flightbridge_template_rules.py` (copy, drift-checked by `scripts/check_crm_copies.py`) | `test_templates.py`, CRM template tests |
 | Inbox readers: Hostinger API (GET + raw source) and IMAP (read-only) | `inbound/readers.py` | RFC 822 parse test |
 | Ingest, threading, bounce/unsubscribe/rejection effects | `inbound/ingest.py` | `test_inbound_flow.py` (18 scenarios) |
 | Classifier (rules; risk = most severe signal) + prompt-injection guard | `ai/classify.py` | `test_classifier_eval.py`: 40 synthetic cases, gates: 0 false GREEN, 100% recall on unsubscribe/bounce/auto/RED |

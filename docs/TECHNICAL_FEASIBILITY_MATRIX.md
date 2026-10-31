@@ -18,7 +18,7 @@ Legend: ✅ feasible now · 🟡 feasible with a condition · 🔴 not feasible 
 | 12 | Inbox monitoring | 🟡 | `message.received` webhook (Bearer-secret auth) as a hint, then authenticated re-fetch; polling reconciliation | API models expose no thread id; local threading from Message-ID/In-Reply-To + Ref token unless a live probe proves otherwise | F2 |
 | 13 | IMAP/SMTP fallback | 🟡 | `imap.hostinger.com:993` / `smtp.hostinger.com:465` for a Hostinger box; otherwise the current host's settings | Current .in mail host is `host2.dnsinweb.com`, limits unknown | F1, F2 |
 | 14 | Domain authentication | 🟡 | Fix duplicate DMARC on .in (RFC 9989 discards both); subdomain only after Hostinger confirms support | Subdomain = risk reduction, not isolation guarantee; no DNS changed | F1 |
-| 15 | CRM integration | ✅ **implemented** | Migration 036 (schema `flightbridge`), `flightbridge_routes.py`, Partnerships tab | 9 CRM tests pass; existing routes verified; frontend builds | F7 |
+| 15 | CRM integration | ✅ **implemented** | Migrations 037–038 (schema `flightbridge`), `flightbridge_routes.py`, Partnerships tab | 9 CRM tests pass; existing routes verified; frontend builds | F7 |
 | 16 | Durable jobs / recovery | 🟡 | Postgres job table with leases + idempotency keys | Render free tier spins down and is "not for production"; paid instance or external scheduler needed before sending | F7 |
 | 17 | Backups | 🟡 | Supabase Pro ($25/mo) | Free plan has no automatic backups and pauses after 1 week idle | F7 |
 | 18 | AI classification / drafting | ✅ | Existing Groq key or another provider; deterministic rules first | Needs an evaluation set before any GREEN auto-send | F7 |
