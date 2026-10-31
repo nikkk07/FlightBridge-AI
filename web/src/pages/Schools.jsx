@@ -19,7 +19,8 @@ export default function Schools() {
   const [q, setQ] = useState(sp.get('q') || '');
   const country = sp.get('country') || '';
   const status = sp.get('status') || '';
-  const list = useLoad(() => api.schools({ country, status, q: sp.get('q') || '' }), [country, status, sp.get('q')]);
+  const region = sp.get('region') || '';
+  const list = useLoad(() => api.schools({ country, status, region, q: sp.get('q') || '' }), [country, status, region, sp.get('q')]);
   const countries = useMemo(() => [...new Set((list.data || []).map((s) => s.country))].sort(), [list.data]);
 
   useEffect(() => {
@@ -38,12 +39,18 @@ export default function Schools() {
     <div className={`page page-wide ${id ? 'has-detail' : ''}`}>
       <div className="master">
         <header className="page-head">
-          <h1>Schools</h1>
-          <p className="muted">Each school is listed by its regulator. Check the entry, then mark it as a good fit or not.</p>
+          {country && (
+            <nav className="crumbs" aria-label="Location">
+              <Link to="/schools">All flying schools</Link>
+              {region && <> <span aria-hidden="true">/</span> <Link to={`/schools?country=${country}`}>{countryName(country)}</Link></>}
+            </nav>
+          )}
+          <h1>{!country ? 'All flying schools' : region ? (region === '__none__' ? 'Region not stated' : region) : countryName(country)}</h1>
+          <p className="muted">Every school here is listed by its national regulator. FlightBridge reads their websites; you make the call on fit.</p>
         </header>
         <div className="filters">
           <input type="search" placeholder="Search name, website or approval number" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search schools" />
-          <select value={country} onChange={(e) => setParam('country', e.target.value)} aria-label="Country">
+          <select value={country} onChange={(e) => { const n = new URLSearchParams(sp); e.target.value ? n.set('country', e.target.value) : n.delete('country'); n.delete('region'); setSp(n); }} aria-label="Country">
             <option value="">All countries</option>
             {[...new Set([...countries, country].filter(Boolean))].map((c) => <option key={c} value={c}>{countryName(c)}</option>)}
           </select>
@@ -69,7 +76,7 @@ export default function Schools() {
                 <tr key={s.id} className={s.id === id ? 'sel' : ''}>
                   <td>
                     <Link to={`/schools/${s.id}?${sp}`} className="row-link">{s.name}</Link>
-                    <small className="muted">{[s.city, countryName(s.country)].filter(Boolean).join(', ')}{s.website_domain ? ` – ${s.website_domain}` : ''}</small>
+                    <small className="muted">{[s.city, s.region, countryName(s.country)].filter((x, i, a) => x && a.indexOf(x) === i).join(', ')}{s.website_domain ? ` – ${s.website_domain}` : ''}</small>
                   </td>
                   <td><RegRef authority={s.authority_code} value={s.approval_ref} /></td>
                   <td><Status value={s.status} /></td>
@@ -113,12 +120,36 @@ function SchoolDetail({ id, onChanged, back }) {
       {s && (
         <>
           <h2>{s.name}</h2>
-          <p className="muted">{[s.city, countryName(s.country)].filter(Boolean).join(', ')}</p>
+          <p className="muted">{[s.city, s.region, countryName(s.country)].filter((x, i, a) => x && a.indexOf(x) === i).join(', ')}</p>
           <p>
             <Status value={s.status} />
             {s.website_domain && <> <a href={`https://${s.website_domain}`} target="_blank" rel="noreferrer noopener">{s.website_domain}</a></>}
           </p>
           {s.rejection_reason && <p className="note">Not a fit: {s.rejection_reason}</p>}
+
+          <ResearchNow id={id} jobs={s.jobs} hasSite={!!s.website_domain} onQueued={() => d.reload()} />
+
+          <h3>What their website says</h3>
+          {!s.profile ? (
+            <p className="muted">{s.website_domain ? 'Not read yet. It’s in the queue for the next cycle.' : 'No official website confirmed yet.'}</p>
+          ) : (
+            <div className="profile">
+              {s.profile.summary && <p>{s.profile.summary}</p>}
+              <ul className="signals">
+                {Object.entries(SIGNAL_LABEL).map(([k, label]) => {
+                  const ev = (s.profile.evidence || []).find((e) => e.signal === k);
+                  const yes = s.profile.signals?.[k];
+                  return (
+                    <li key={k} className={yes ? 'yes' : 'no'}>
+                      <span>{yes ? label.yes : label.no}</span>
+                      {ev && <small className="muted">“{ev.excerpt}” – <a href={ev.url} target="_blank" rel="noreferrer noopener">source</a></small>}
+                    </li>
+                  );
+                })}
+              </ul>
+              <small className="muted">Read {when(s.profile.updated_at, true)}{s.profile.generator !== 'keywords-v1' ? `, summary by ${s.profile.generator.split(':')[0]} (free tier)` : ''}</small>
+            </div>
+          )}
 
           <h3>Regulator entry</h3>
           {s.regulatory.length === 0 && <p className="muted">No regulator record linked.</p>}
@@ -197,6 +228,31 @@ function SchoolDetail({ id, onChanged, back }) {
         </>
       )}
     </aside>
+  );
+}
+
+const SIGNAL_LABEL = {
+  has_cpl: { yes: 'Mentions CPL training', no: 'No CPL mention found' },
+  intl_students: { yes: 'Takes international students', no: 'No mention of international students' },
+  fleet_published: { yes: 'Publishes its fleet', no: 'Fleet not published' },
+  accommodation: { yes: 'Offers accommodation', no: 'No accommodation mentioned' },
+  india_mention: { yes: 'Mentions India or DGCA', no: 'No India/DGCA mention' },
+};
+
+function ResearchNow({ id, jobs, hasSite, onQueued }) {
+  const [msg, setMsg] = useState(null);
+  const pending = (jobs || []).find((j) => j.kind === 'research_school' && (j.status === 'queued' || j.status === 'running'));
+  const go = async () => {
+    setMsg(null);
+    try { const r = await api.runNow('research_school', id); setMsg({ ok: true, text: r.message }); onQueued(); }
+    catch (e) { setMsg({ ok: false, text: e.message }); }
+  };
+  return (
+    <div className="research-now">
+      {pending ? <p className="muted small">Research {pending.status === 'running' ? 'is running now' : 'is queued'} – requested {when(pending.requested_at, true)}.</p>
+        : <button className="btn btn-quiet btn-small" onClick={go}>{hasSite ? 'Read the website again now' : 'Find the website and research now'}</button>}
+      {msg && <p className={msg.ok ? 'form-ok small' : 'form-error small'}>{msg.text}</p>}
+    </div>
   );
 }
 

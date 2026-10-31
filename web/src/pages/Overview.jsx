@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Loading, Problem, Risk, countryName, useLoad, when } from '../lib';
+import { ago, workerState } from '../nav';
 
 const STAGES = [
   ['Found in a register', ['discovered', 'research_pending', 'research_completed', 'authority_verified', 'contact_verified']],
@@ -19,7 +20,7 @@ function greeting() {
 
 export default function Overview() {
   const { me } = useAuth();
-  const s = useLoad(() => Promise.all([api.summary(), api.approvals('open'), api.inbox({ limit: 8 }), api.metrics()]), []);
+  const s = useLoad(() => Promise.all([api.summary(), api.approvals('open'), api.inbox({ limit: 8 }), api.metrics(), api.automation().catch(() => null)]), []);
   const first = (me?.name || '').split(' ')[0];
 
   return (
@@ -35,14 +36,21 @@ export default function Overview() {
   );
 }
 
-function Body({ data: [summary, approvals, inbox, metrics] }) {
+function Body({ data: [summary, approvals, inbox, metrics, automation] }) {
   const orgs = summary.organisations || {};
   const total = Object.values(orgs).reduce((a, b) => a + b, 0);
   const needLook = orgs.needs_human_review || 0;
   const attention = inbox.filter((m) => m.risk === 'RED' || m.risk === 'AMBER');
 
+  const ws = workerState(automation);
+  const recent = (automation?.activity || []).filter((e) => e.actor_type === 'system').slice(0, 1)[0];
   return (
     <>
+      <Link to="/automation" className={`autobar autobar-${ws.tone}`}>
+        <i className={`dot dot-${ws.tone}`} aria-hidden="true" />
+        <span><b>{ws.label}.</b> {ws.detail}{recent ? `. Latest: ${recent.org_name ? recent.org_name.replace(/\s+T\/A\s+/i, ' – ') + ' – ' : ''}${recent.action.replace(/_/g, ' ')} ${ago(recent.at)}` : ''}</span>
+        {automation?.backlog && <span className="muted autobar-q">{automation.backlog.need_website + automation.backlog.need_research + automation.backlog.need_scoring} schools in the pipeline</span>}
+      </Link>
       <section className="todo">
         <Link to="/approvals" className="todo-item">
           <span className="todo-n">{approvals.length}</span>

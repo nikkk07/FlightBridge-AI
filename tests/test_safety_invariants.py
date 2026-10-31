@@ -48,12 +48,18 @@ def test_transport_refuses_construction_without_capability():
 
 
 def test_no_module_calls_requests_post_except_transport():
-    # transports.py = the only mail sender; ai/llm.py = optional classifier call to an LLM API (sends no email).
-    allowed = {"sending/transports.py", "ai/llm.py"}
+    # transports.py = the only mail sender; ai/llm.py = optional LLM API call; research/places.py = Places search.
+    allowed = {"sending/transports.py", "ai/llm.py", "research/places.py"}
     for f in PKG.rglob("*.py"):
         if f.relative_to(PKG).as_posix() in allowed:
             continue
         assert ".post(" not in f.read_text(), f
+    # The non-mail POSTs may only reach their fixed API hosts.
+    import re
+    places = (PKG / "research/places.py").read_text()
+    assert re.findall(r'"(https://[^"]+)"', places) == ["https://places.googleapis.com/v1/places:searchText"]
+    llm_hosts = set(re.findall(r'"https://([^/"]+)/', (PKG / "ai/llm.py").read_text()))
+    assert llm_hosts == {"api.groq.com", "generativelanguage.googleapis.com"}
 
 
 def test_suppression_scopes():

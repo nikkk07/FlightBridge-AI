@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth';
-import { api, DEMO } from './api';
+import { DEMO } from './api';
+import { SendingBox, Sidebar, useNavData } from './nav';
+import Automation from './pages/Automation';
 import Login from './pages/Login';
 import Overview from './pages/Overview';
 import Schools from './pages/Schools';
@@ -12,39 +14,10 @@ import Sent from './pages/Sent';
 import Settings from './pages/Settings';
 import Team from './pages/Team';
 
-const NAV = [
-  { to: '/', label: 'Today', end: true },
-  { to: '/schools', label: 'Schools' },
-  { to: '/approvals', label: 'Approvals' },
-  { to: '/inbox', label: 'Replies' },
-  { to: '/templates', label: 'Email templates' },
-  { to: '/sent', label: 'Sent & checks' },
-  { to: '/settings', label: 'Sending & safety' },
-  { to: '/team', label: 'Team', admin: true },
-];
-
-function SendingState() {
-  const [ks, setKs] = useState(null);
-  const loc = useLocation();
-  useEffect(() => {
-    api.summary().then((s) => setKs(s.kill_switches?.outbound_kill_switch), () => setKs(undefined));
-  }, [loc.pathname]);
-  if (ks === null) return null;
-  const off = ks !== false;
-  return (
-    <div className={`sending ${off ? 'sending-off' : 'sending-armed'}`}>
-      <span className="sending-dot" aria-hidden="true" />
-      <div>
-        <strong>{off ? 'Sending is paused' : 'Kill switch released'}</strong>
-        <span>{off ? 'No email can leave the system.' : 'Server dry-run settings still apply.'}</span>
-      </div>
-    </div>
-  );
-}
-
 function Shell() {
   const { me, signOut, isAdmin } = useAuth();
   const [open, setOpen] = useState(false);
+  const navData = useNavData();
   const loc = useLocation();
   useEffect(() => setOpen(false), [loc.pathname]);
   return (
@@ -59,13 +32,11 @@ function Shell() {
             <span /><span />
           </button>
         </div>
-        <nav>
-          {NAV.filter((n) => !n.admin || isAdmin).map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end}>{n.label}</NavLink>
-          ))}
-        </nav>
+        <div className="rail-scroll">
+          <Sidebar data={navData} />
+        </div>
         <div className="rail-foot">
-          <SendingState />
+          <SendingBox summary={navData.summary} />
           <div className="who">
             <div>
               <b>{me?.name}</b>
@@ -79,6 +50,7 @@ function Shell() {
         {DEMO && <p className="demo-strip">Preview with sample data. School names and approval numbers are the real UK CAA register; contacts, emails and replies are invented. Nothing here is saved or sent.</p>}
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/automation" element={<Automation />} />
           <Route path="/schools" element={<Schools />} />
           <Route path="/schools/:id" element={<Schools />} />
           <Route path="/approvals" element={<Approvals />} />

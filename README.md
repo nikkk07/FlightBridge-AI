@@ -31,3 +31,11 @@ Requirements: Python 3.11+, `psycopg[binary]`, `requests`, `pytest`.
 Standalone FlightBridge workspace (Vite + React), live at https://flying.weoneaviation.in once DNS is added. It signs in with CRM accounts and calls the CRM backend (`/api/auth/login`, `/api/flightbridge/*`), so it shares data with the CRM's Partnerships tab. Roles: CRM Admin department or `permissions.flightbridge = "admin"` → admin; `"researcher"` → can verify schools and record evidence, cannot approve emails, templates or sending.
 
 Local: `cd web && npm install && VITE_API_URL=http://localhost:8000 npm run dev`. Vercel: root directory `web`, env `VITE_API_URL`.
+
+## How it runs (automation)
+
+The worker (`flightbridge/worker.py` + `flightbridge/automation.py`) is the engine. Each cycle: Run-now requests from the app, then find websites (Google Places, confirmed on the school's own homepage), read the sites (public emails + signals, optional free-LLM summary via Groq or Gemini), score the fit, draft first emails from the approved template into Approvals, then replies, follow-ups and the send queue (still dry-run).
+
+- Always on, free: `.github/workflows/flightbridge-worker.yml` runs every 15 minutes on GitHub Actions once the repository secrets are set (`FLIGHTBRIDGE_DATABASE_URL`, `GOOGLE_PLACES_API_KEY`, optional `GROQ_API_KEY`/`GEMINI_API_KEY` + variable `FB_LLM_PROVIDER`). DRY_RUN/OUTBOUND_ENABLED are fixed off in the workflow.
+- Office Mac (optional, faster Run-now): `scripts/mac/install_launchd.sh` installs a LaunchAgent that runs the worker while the Mac is on.
+- Instant Run-now (optional): set `FB_GITHUB_DISPATCH_TOKEN` (fine-grained token, Actions: write on this repo) on the CRM server; Run-now then starts the GitHub worker immediately.

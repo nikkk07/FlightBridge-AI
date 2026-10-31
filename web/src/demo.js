@@ -8,7 +8,7 @@ const SRC = 'https://www.caa.co.uk/publication/download/13488';
 
 const status = (i) => (i === 3 ? 'qualified' : i === 7 ? 'contacted' : i === 10 || i === 11 ? 'needs_human_review' : i === 14 ? 'rejected' : 'research_pending');
 const orgs = schools.map((s, i) => ({
-  id: `org-${i}`, name: s.name, country: s.country, city: s.city, status: status(i),
+  id: `org-${i}`, name: s.name, country: s.country, region: s.region || null, city: s.city, status: status(i),
   website_domain: i === 3 || i === 7 ? `school-${i}.example.test` : null,
   rejection_reason: i === 14 ? 'Helicopter training only' : null, updated_at: iso(1),
   authority_code: 'UK_CAA', classification: 'ATO_UK', approval_ref: s.ref, approval_status: i === 3 ? 'verified_by_human' : 'listed_in_register',
@@ -33,6 +33,14 @@ const team = [
   { id: 'e3', name: 'Counsellor (sample)', department: 'Sales', fb_role: '', effective_role: null },
 ];
 let killSwitch = true;
+let autopilotCfg = { find_websites: true, research: true, qualify: true, draft: true, batch_size: 8 };
+const jobs = [];
+const runs = [
+  { id: 3, started_at: iso(0.004), finished_at: iso(0.0035), runner: 'github-actions', trigger: 'schedule', status: 'partial',
+    stats: { research: { find_websites_error: 'Places API 403: Places API (New) has not been used in project 589531166732 before or it is disabled.', research: { researched: 2, emails_found: 2 }, qualify: { qualified: 1, needs_review: 1 }, draft: { drafts_created: 1 } } } },
+  { id: 2, started_at: iso(0.014), finished_at: iso(0.0138), runner: 'github-actions', trigger: 'schedule', status: 'ok', stats: { research: {} } },
+  { id: 1, started_at: iso(0.03), finished_at: iso(0.029), runner: 'mac', trigger: 'queue', status: 'ok', stats: { jobs: [{}], research: { research: { researched: 1, emails_found: 1 } } } },
+];
 let followups = [4, 9, 16];
 
 function school(id) {
@@ -45,6 +53,13 @@ function school(id) {
     contacts: o.contacts ? [{ id: `c-${i}`, email: `info@school-${i}.example.test`, is_role_address: true, role: null, source_url: `https://school-${i}.example.test/contact`,
       evidence: [{ fact: 'address_conspicuously_published', method: 'human_verified', expires_at: iso(-80) }] }] : [],
     qualification: o.score ? { score: o.score, confidence: 'medium', missing: [], risks: [] } : null,
+    profile: o.website_domain ? { summary: 'Sample summary: offers modular CPL and PPL training at its airfield and says it accepts international students; fleet published.',
+      signals: { has_cpl: true, intl_students: true, fleet_published: true, accommodation: false, india_mention: false },
+      evidence: [{ signal: 'has_cpl', url: `https://${o.website_domain}/courses`, excerpt: 'Modular CPL and PPL courses run all year from our airfield.' },
+        { signal: 'intl_students', url: `https://${o.website_domain}/international`, excerpt: 'We welcome international students and can provide visa support letters.' },
+        { signal: 'fleet_published', url: `https://${o.website_domain}/fleet`, excerpt: 'Our fleet: four Piper PA-28 Warriors and a Diamond DA42.' }],
+      generator: 'groq:llama-3.1-8b-instant', updated_at: iso(0.05) } : null,
+    jobs: [],
     history: [{ at: iso(0), action: 'organisation created', payload: {} }],
   };
 }
@@ -61,8 +76,9 @@ export const demoApi = {
   },
   metrics: () => ok({ schools_contacted: 1, schools_replied: 1, response_rate: 1, schools_by_country: orgs.reduce((a, o) => ({ ...a, [o.country]: (a[o.country] || 0) + 1 }), {}) }),
   schools: (p = {}) => ok(orgs.filter((o) => (!p.country || o.country === p.country) && (!p.status || o.status === p.status)
+    && (!p.region || (p.region === '__none__' ? !o.region : o.region === p.region))
     && (!p.q || (o.name + o.approval_ref).toLowerCase().includes(p.q.toLowerCase())))),
-  school: (id) => wait(school(id)),
+  school: (id) => wait({ ...school(id), jobs: jobs.filter((j) => j.org_id === id) }),
   reviewSchool: (id, decision, reason) => { const o = orgs.find((x) => x.id === id); o.status = decision; o.rejection_reason = reason || null; return ok(); },
   verifyRegulatory: (id) => { orgs.find((x) => x.id === id).approval_status = 'verified_by_human'; return ok(); },
   addEvidence: () => ok(),
@@ -85,6 +101,33 @@ export const demoApi = {
   setKillSwitch: (v) => { killSwitch = v; return ok({ note: 'Preview only. In the real app, server dry-run settings still block sending.' }); },
   suppressions: () => ok([]),
   addSuppression: () => ok(),
+  regions: () => {
+    const m = {};
+    orgs.forEach((o) => {
+      const c = (m[o.country] ||= { country: o.country, total: 0, needs_look: 0, regions: {} });
+      c.total += 1; if (o.status === 'needs_human_review') c.needs_look += 1;
+      const r = (c.regions[o.region] ||= { region: o.region, total: 0, needs_look: 0, good_fit: 0, in_contact: 0 });
+      r.total += 1;
+    });
+    return ok(Object.values(m).map((c) => ({ ...c, regions: Object.values(c.regions) })).sort((a, b) => b.total - a.total));
+  },
+  automation: () => ok({
+    runs, jobs, runners: [{ runner: 'github-actions', last_seen: iso(0.004) }, { runner: 'mac', last_seen: iso(0.03) }], autopilot: autopilotCfg,
+    backlog: { need_website: orgs.filter((o) => !o.website_domain && o.status === 'research_pending').length, need_research: 0, need_scoring: 0 },
+    activity: [
+      { at: iso(0.0036), actor_type: 'system', action: 'draft_created', entity: 'ai_draft', payload: {} },
+      { at: iso(0.0037), actor_type: 'system', action: 'qualified', entity: 'organisation', entity_id: 'org-3', org_name: orgs[3].name, payload: { score: 82, recommended_action: 'draft_outreach_for_approval' } },
+      { at: iso(0.0038), actor_type: 'system', action: 'research_stored', entity: 'organisation', entity_id: 'org-3', org_name: orgs[3].name, payload: { pages: 6, contacts: 1 } },
+      { at: iso(0.0039), actor_type: 'system', action: 'research_stored', entity: 'organisation', entity_id: 'org-7', org_name: orgs[7].name, payload: { pages: 4, contacts: 1 } },
+      ...orgs.map((o) => ({ at: iso(0.9), actor_type: 'system', action: 'organisation_created', entity: 'organisation', entity_id: o.id, org_name: o.name, payload: {} })),
+    ],
+  }),
+  runNow: (kind, org_id) => {
+    if (jobs.some((j) => j.kind === kind && j.status === 'queued' && (j.org_id || null) === (org_id || null))) return ok({ queued: false, already_queued: true, message: 'Already queued.' });
+    jobs.unshift({ id: jobs.length + 1, kind, org_id, status: 'queued', requested_at: new Date().toISOString(), org_name: orgs.find((o) => o.id === org_id)?.name, requested_by_name: 'Nikhil Bisht' });
+    return ok({ queued: true, message: 'Queued (preview only). In the live app it runs on the next worker cycle.' });
+  },
+  setAutopilot: (b) => { autopilotCfg = b; return ok(b); },
   team: () => ok(team),
   setRole: (id, role) => { const e = team.find((x) => x.id === id); e.fb_role = role || ''; e.effective_role = e.department === 'Admin' ? 'admin' : role || null; return ok(); },
 };

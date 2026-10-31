@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from .extract import EmailFinding, parse, site_domain
 from .fetch import FetchBlocked, SafeFetcher
+from .signals import visible_text
 
 
 @dataclass
@@ -14,6 +15,7 @@ class CrawlResult:
     pages: list = field(default_factory=list)      # (url, status, robots_allowed, sha256)
     findings: list = field(default_factory=list)   # EmailFinding
     errors: list = field(default_factory=list)
+    texts: list = field(default_factory=list)      # (url, visible text) for signal extraction
 
 
 def crawl(start_url: str, fetcher: SafeFetcher, max_pages: int = 12, max_depth: int = 2) -> CrawlResult:
@@ -41,6 +43,7 @@ def crawl(start_url: str, fetcher: SafeFetcher, max_pages: int = 12, max_depth: 
         if not page.html:
             continue
         found, links = parse(page.html, page.url)
+        res.texts.append((page.url, visible_text(page.html)))
         for f in found:
             emails.setdefault(f.email, f)
         if depth < max_depth:

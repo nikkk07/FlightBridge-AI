@@ -33,13 +33,16 @@ def import_rows(database_url: str, rows: list[RegisterRow]) -> dict:
                 org_id = hit[0] if hit else None
             if org_id is None:
                 org_id = conn.execute(
-                    """INSERT INTO flightbridge.organisation (name, country, city, website_domain, status)
-                       VALUES (%s,%s,%s,%s,'research_pending') RETURNING id""",
-                    (r.name, r.country, r.city, r.website_domain)).fetchone()[0]
+                    """INSERT INTO flightbridge.organisation (name, country, region, city, website_domain, status)
+                       VALUES (%s,%s,%s,%s,%s,'research_pending') RETURNING id""",
+                    (r.name, r.country, r.region, r.city, r.website_domain)).fetchone()[0]
                 stats["created"] += 1
                 db.audit(conn, "organisation_created", "organisation", org_id, {"source": r.source_url})
             else:
                 stats["matched"] += 1
+                if r.region:
+                    conn.execute("UPDATE flightbridge.organisation SET region=%s WHERE id=%s AND region IS DISTINCT FROM %s",
+                                 (r.region, org_id, r.region))
             if r.approval_ref:
                 conn.execute("""INSERT INTO flightbridge.organisation_identifier (org_id, scheme, value, source_url)
                                 VALUES (%s,%s,%s,%s) ON CONFLICT (scheme, value) DO NOTHING""",
@@ -51,19 +54,19 @@ def import_rows(database_url: str, rows: list[RegisterRow]) -> dict:
             now = now_utc()
             conn.execute(
                 """INSERT INTO flightbridge.regulatory_approval
-                     (org_id, authority_code, classification, approval_ref, status, source_url, source_version,
+                     (org_id, authority_code, classification, approval_ref, courses, status, source_url, source_version,
                       checked_at, checked_by, next_check_due)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                    ON CONFLICT (org_id, authority_code, classification) DO UPDATE
-                     SET approval_ref=EXCLUDED.approval_ref, status=EXCLUDED.status, source_url=EXCLUDED.source_url,
+                     SET approval_ref=EXCLUDED.approval_ref, courses=EXCLUDED.courses, status=EXCLUDED.status, source_url=EXCLUDED.source_url,
                          source_version=EXCLUDED.source_version, checked_at=EXCLUDED.checked_at,
                          checked_by=EXCLUDED.checked_by, next_check_due=EXCLUDED.next_check_due""",
-                (org_id, r.authority, r.classification, r.approval_ref, r.approval_status, r.source_url,
+                (org_id, r.authority, r.classification, r.approval_ref, json.dumps(list(r.courses)), r.approval_status, r.source_url,
                  r.source_version, now, r.checked_by, now + timedelta(days=REVALIDATE_DAYS[r.approval_status])))
     return stats
 
 
-def store_crawl(database_url: str, org_id: str, result: CrawlResult) -> dict:
+def store_crawl(database_url: str, org_id: str, result: CrawlResult, profile: dict | None = None) -> dict:
     stats = {"pages": 0, "contacts": 0, "evidence": 0}
     text_signals = {"has_cpl": False, "has_ppl": False}
     with db.tx(database_url) as conn:
@@ -98,6 +101,15 @@ def store_crawl(database_url: str, org_id: str, result: CrawlResult) -> dict:
                        VALUES (%s,'refusal_statement_present',%s,%s,'automated_extraction',%s)""",
                     (cid, f.source_url, f.context[:500], now_utc() + timedelta(days=3650)))
                 stats["evidence"] += 1
+        if profile is not None:
+            conn.execute(
+                """INSERT INTO flightbridge.organisation_profile (org_id, summary, signals, evidence, generator, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,now()) ON CONFLICT (org_id) DO UPDATE
+                   SET summary=EXCLUDED.summary, signals=EXCLUDED.signals, evidence=EXCLUDED.evidence,
+                       generator=EXCLUDED.generator, updated_at=now()""",
+                (org_id, profile.get("summary"), json.dumps(profile["signals"]), json.dumps(profile["evidence"]),
+                 profile.get("generator", "keywords-v1")))
+            stats["signals"] = sorted(k for k, v in profile["signals"].items() if v)
         conn.execute("UPDATE flightbridge.organisation SET status='research_completed', updated_at=now() "
                      "WHERE id=%s AND status IN ('discovered','research_pending')", (org_id,))
         db.audit(conn, "research_stored", "organisation", org_id, {**stats, "errors": result.errors[:20]})
@@ -105,11 +117,15 @@ def store_crawl(database_url: str, org_id: str, result: CrawlResult) -> dict:
 
 
 def research_org(database_url: str, org_id: str, fetcher: SafeFetcher, max_pages: int = 12) -> dict:
+    from .signals import extract, summarise
     with db.tx(database_url) as conn:
-        row = conn.execute("SELECT website_domain FROM flightbridge.organisation WHERE id=%s", (org_id,)).fetchone()
+        row = conn.execute("SELECT website_domain, name FROM flightbridge.organisation WHERE id=%s", (org_id,)).fetchone()
     if not row or not row[0]:
         return {"error": "no_website_domain"}
-    return store_crawl(database_url, org_id, crawl(f"https://{row[0]}/", fetcher, max_pages=max_pages))
+    result = crawl(f"https://{row[0]}/", fetcher, max_pages=max_pages)
+    profile = extract(result.texts)
+    profile["summary"], profile["generator"] = summarise(row[1], result.texts)
+    return store_crawl(database_url, org_id, result, profile)
 
 
 def qualify_org(database_url: str, org_id: str, extra_signals: dict | None = None) -> dict:
@@ -119,9 +135,20 @@ def qualify_org(database_url: str, org_id: str, extra_signals: dict | None = Non
         contacts = conn.execute("SELECT is_role_address FROM flightbridge.contact WHERE org_id=%s", (org_id,)).fetchall()
         pages = conn.execute("SELECT count(*) FROM flightbridge.website_page WHERE org_id=%s AND http_status=200",
                              (org_id,)).fetchone()[0]
+        courses = conn.execute("SELECT courses FROM flightbridge.regulatory_approval WHERE org_id=%s", (org_id,)).fetchall()
+        course_text = " ".join(str(c) for row in courses for c in (row[0] or []))
+        prof = conn.execute("SELECT signals FROM flightbridge.organisation_profile WHERE org_id=%s", (org_id,)).fetchone()
+        site = (prof[0] if prof else None) or {}
         signals = {"regulatory_status": reg[0] if reg else None, "classification": reg[1] if reg else None,
                    "role_contact": any(c[0] for c in contacts), "any_contact": bool(contacts),
-                   "site_active": pages > 0, **(extra_signals or {})}
+                   "site_active": pages > 0,
+                   # CPL/PPL: the regulator's approved-course list is primary evidence; the website is secondary.
+                   "has_cpl": bool(re.search(CPL_RE, course_text, re.I)) or bool(site.get("has_cpl")),
+                   "has_ppl": bool(re.search(PPL_RE, course_text, re.I)) or bool(site.get("has_ppl"))}
+        if prof:   # only claim these as known when the website was actually read
+            signals["intl_students"] = bool(site.get("intl_students"))
+            signals["fleet_published"] = bool(site.get("fleet_published"))
+        signals.update(extra_signals or {})
         q = score(signals)
         conn.execute(
             """INSERT INTO flightbridge.qualification_result
@@ -130,12 +157,16 @@ def qualify_org(database_url: str, org_id: str, extra_signals: dict | None = Non
             (org_id, q["score"], q["weights_version"], json.dumps(q["breakdown"]), json.dumps(q["missing"]),
              json.dumps(q["risks"]), q["recommended_action"], q["confidence"]))
         if q["recommended_action"].startswith("reject"):
-            conn.execute("UPDATE flightbridge.organisation SET status='rejected', rejection_reason=%s WHERE id=%s",
-                         (q["recommended_action"], org_id))
+            # Automation never rejects a regulator-approved school on its own: a person decides (e.g. find a
+            # contact by hand). The reason is kept in qualification_result.recommended_action.
+            conn.execute("UPDATE flightbridge.organisation SET status='needs_human_review' WHERE id=%s "
+                         "AND status NOT IN ('rejected','contacted','interested','negotiation','partner')", (org_id,))
         elif q["recommended_action"] == "draft_outreach_for_approval":
-            conn.execute("UPDATE flightbridge.organisation SET status='qualified' WHERE id=%s", (org_id,))
+            conn.execute("UPDATE flightbridge.organisation SET status='qualified' WHERE id=%s "
+                         "AND status NOT IN ('rejected','contacted','interested','negotiation','partner')", (org_id,))
         else:
-            conn.execute("UPDATE flightbridge.organisation SET status='needs_human_review' WHERE id=%s", (org_id,))
+            conn.execute("UPDATE flightbridge.organisation SET status='needs_human_review' WHERE id=%s "
+                         "AND status NOT IN ('rejected','contacted','interested','negotiation','partner')", (org_id,))
         db.audit(conn, "qualified", "organisation", org_id, q)
     return q
 

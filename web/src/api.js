@@ -61,6 +61,10 @@ const realApi = {
   setKillSwitch: (engaged) => request('/api/flightbridge/kill-switch', { method: 'POST', body: { engaged } }),
   suppressions: () => request('/api/flightbridge/suppressions'),
   addSuppression: (body) => request('/api/flightbridge/suppressions', { method: 'POST', body }),
+  regions: () => request('/api/flightbridge/regions'),
+  automation: () => request('/api/flightbridge/automation'),
+  runNow: (kind, org_id) => request('/api/flightbridge/automation/run', { method: 'POST', body: { kind, org_id } }),
+  setAutopilot: (body) => request('/api/flightbridge/automation/settings', { method: 'POST', body }),
   team: () => request('/api/flightbridge/team'),
   setRole: (id, role) => request(`/api/flightbridge/team/${id}/role`, { method: 'POST', body: { role } }),
 };

@@ -35,8 +35,8 @@ def main(argv=None) -> int:
     d = sub.add_parser("draft"); d.add_argument("org_id")
     pr = sub.add_parser("process"); pr.add_argument("--limit", type=int, default=20)
     sub.add_parser("status")
-    sub.add_parser("run-once")
-    w = sub.add_parser("worker"); w.add_argument("--interval", type=int, default=300)
+    ro = sub.add_parser("run-once"); ro.add_argument("--trigger", choices=["schedule", "manual", "queue"], default="manual")
+    w = sub.add_parser("worker"); w.add_argument("--interval", type=int, default=900); w.add_argument("--poll", type=int, default=60)
     tp = sub.add_parser("template"); tp.add_argument("kind", choices=["initial", "followup_1", "followup_2", "followup_3"])
     tp.add_argument("--subject", required=True); tp.add_argument("--body-file", required=True)
     a = p.parse_args(argv)
@@ -64,12 +64,12 @@ def main(argv=None) -> int:
         out = [o.__dict__ for o in svc.process_ready(a.limit)]
     elif a.cmd == "run-once":
         from .worker import run_once
-        out = run_once(s)
+        out = run_once(s, trigger=a.trigger)
     elif a.cmd == "worker":
         import logging
         from .worker import loop
         logging.basicConfig(level=logging.INFO)
-        loop(s, a.interval)
+        loop(s, a.interval, a.poll)
         return 0
     elif a.cmd == "template":
         from .outreach.templates import save_template

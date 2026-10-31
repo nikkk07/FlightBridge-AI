@@ -36,6 +36,8 @@ class RegisterRow:
     website: str | None
     city: str | None
     checked_by: str | None       # employee uuid, required for human-lookup authorities
+    region: str | None = None    # state / province / UK nation, used for grouping
+    courses: tuple = ()          # approved courses as listed by the regulator
 
     @property
     def website_domain(self) -> str | None:
@@ -52,7 +54,8 @@ class RegisterRow:
 def validate_row(raw: dict) -> RegisterRow:
     row = {k: (raw.get(k) or "").strip() or None for k in
            ("name", "country", "authority", "classification", "approval_ref", "source_url",
-            "source_version", "website", "city", "checked_by")}
+            "source_version", "website", "city", "checked_by", "region")}
+    courses = tuple(c.strip() for c in (raw.get("courses") or "").split("|") if c.strip())
     missing = [k for k in REQUIRED if not row[k]]
     if missing:
         raise RegisterRowError(f"missing:{','.join(missing)}")
@@ -71,7 +74,7 @@ def validate_row(raw: dict) -> RegisterRow:
     if row["authority"] in ("CASA", "FAA", "DGCA", "UK_CAA") and not row["approval_ref"] \
             and row["classification"] != "PART61_OPERATOR_UNVERIFIED":
         raise RegisterRowError("approval_ref_required_for_dedupe")
-    return RegisterRow(**row)
+    return RegisterRow(**row, courses=courses)
 
 
 def read_csv(path: str) -> tuple[list[RegisterRow], list[tuple[int, str]]]:

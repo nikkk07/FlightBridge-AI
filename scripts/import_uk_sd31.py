@@ -13,6 +13,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from flightbridge.research.registers_uk import document_version, parse  # noqa: E402
+from flightbridge.research.regions import uk_nation  # noqa: E402
 
 SOURCE_URL = "https://www.caa.co.uk/publication/download/13488"
 
@@ -38,13 +39,15 @@ with open(f"{stem}_all.csv", "w", newline="", encoding="utf-8") as fh:
 cpl = [e for e in entries if e.cpl_aeroplane_flying]
 with open(f"{stem}_register.csv", "w", newline="", encoding="utf-8") as fh:
     w = csv.DictWriter(fh, fieldnames=["name", "country", "authority", "classification", "approval_ref", "source_url",
-                                       "source_version", "website", "city", "checked_by"])
+                                       "source_version", "website", "city", "checked_by", "region", "courses"])
     w.writeheader()
     for e in cpl:
         city = next((a for a in reversed(e.address[:-1]) if not any(ch.isdigit() for ch in a)), "")
         w.writerow({"name": e.name, "country": e.country, "authority": "UK_CAA", "classification": "ATO_UK",
                     "approval_ref": e.approval_ref, "source_url": SOURCE_URL, "source_version": version_label,
-                    "website": "", "city": city, "checked_by": ""})
+                    "website": "", "city": city, "checked_by": "",
+                    "region": (uk_nation(e.address) if e.country == "GB" else city) or "",
+                    "courses": " | ".join(e.courses)})
 
 print(f"{version_label}: {len(entries)} organisations; {len(cpl)} with CPL(Aeroplane) flying courses")
 print(f"wrote {stem}_all.csv and {stem}_register.csv")

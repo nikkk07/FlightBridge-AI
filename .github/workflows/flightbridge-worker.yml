@@ -1,0 +1,64 @@
+# FlightBridge worker — the always-on part of the system, free on GitHub Actions (public repository).
+# Every 15 minutes: "Run now" requests -> find websites -> read school sites -> qualify -> drafts for approval
+# -> replies (if a mailbox is configured) -> follow-ups -> send queue.
+# Sending stays OFF here: DRY_RUN and OUTBOUND_ENABLED are fixed below. Changing them is a deliberate owner edit.
+# Needs repository secrets (Settings -> Secrets and variables -> Actions). Without FLIGHTBRIDGE_DATABASE_URL it skips.
+name: FlightBridge worker
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      trigger:
+        description: "schedule | manual | queue"
+        required: false
+        default: manual
+
+concurrency:
+  group: flightbridge-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FLIGHTBRIDGE_DATABASE_URL: ${{ secrets.FLIGHTBRIDGE_DATABASE_URL }}
+      GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+      FB_LLM_PROVIDER: ${{ vars.FB_LLM_PROVIDER }}
+      FB_LLM_MODEL: ${{ vars.FB_LLM_MODEL }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      INBOUND_SOURCE: ${{ vars.INBOUND_SOURCE }}
+      HOSTINGER_MAIL_API_TOKEN: ${{ secrets.HOSTINGER_MAIL_API_TOKEN }}
+      HOSTINGER_MAILBOX_RESOURCE_ID: ${{ secrets.HOSTINGER_MAILBOX_RESOURCE_ID }}
+      FB_RUNNER: github-actions
+      DRY_RUN: "true"
+      OUTBOUND_ENABLED: "false"
+    steps:
+      - name: Check configuration
+        id: cfg
+        run: |
+          if [ -z "$FLIGHTBRIDGE_DATABASE_URL" ]; then
+            echo "::notice::FLIGHTBRIDGE_DATABASE_URL secret not set - nothing to do."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.ready == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        if: steps.cfg.outputs.ready == 'true'
+        run: pip install -r requirements.txt
+      - name: Run one cycle
+        if: steps.cfg.outputs.ready == 'true'
+        run: python -m flightbridge.cli run-once --trigger "${{ github.event_name == 'schedule' && 'schedule' || inputs.trigger || 'manual' }}"

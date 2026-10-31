@@ -70,9 +70,13 @@ def clean_db(db_url):
                      flightbridge.website_page, flightbridge.regulatory_approval, flightbridge.organisation_identifier,
                      flightbridge.organisation, flightbridge.audit_log, flightbridge.job, flightbridge.outreach_template,
                      flightbridge.ai_classification, flightbridge.webhook_event, flightbridge.mailbox_cursor,
+                     flightbridge.worker_run, flightbridge.job_request, flightbridge.organisation_profile,
                      public.employee CASCADE""")
         c.execute("INSERT INTO flightbridge.system_setting (key, value) VALUES ('outbound_kill_switch','true'::jsonb),"
                   "('auto_reply_kill_switch','true'::jsonb) ON CONFLICT (key) DO UPDATE SET value='true'::jsonb")
         c.execute("INSERT INTO flightbridge.system_setting (key, value) VALUES ('followup_schedule_days','[4, 9, 16]'::jsonb),"
                   "('followup_business_hours','{\"start\": 9, \"end\": 17}'::jsonb) ON CONFLICT (key) DO NOTHING")
+        c.execute("""INSERT INTO flightbridge.system_setting (key, value) VALUES ('autopilot',
+                     '{"find_websites": true, "research": true, "qualify": true, "draft": true, "batch_size": 8}'::jsonb)
+                     ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""")
     return db_url
