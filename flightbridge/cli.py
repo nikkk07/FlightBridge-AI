@@ -35,6 +35,10 @@ def main(argv=None) -> int:
     d = sub.add_parser("draft"); d.add_argument("org_id")
     pr = sub.add_parser("process"); pr.add_argument("--limit", type=int, default=20)
     sub.add_parser("status")
+    sub.add_parser("run-once")
+    w = sub.add_parser("worker"); w.add_argument("--interval", type=int, default=300)
+    tp = sub.add_parser("template"); tp.add_argument("kind", choices=["initial", "followup_1", "followup_2", "followup_3"])
+    tp.add_argument("--subject", required=True); tp.add_argument("--body-file", required=True)
     a = p.parse_args(argv)
 
     s = Settings.from_env()
@@ -58,12 +62,27 @@ def main(argv=None) -> int:
     elif a.cmd == "process":
         svc = SendingService(s, load_rules(), load_sender_profile())
         out = [o.__dict__ for o in svc.process_ready(a.limit)]
+    elif a.cmd == "run-once":
+        from .worker import run_once
+        out = run_once(s)
+    elif a.cmd == "worker":
+        import logging
+        from .worker import loop
+        logging.basicConfig(level=logging.INFO)
+        loop(s, a.interval)
+        return 0
+    elif a.cmd == "template":
+        from .outreach.templates import save_template
+        with open(a.body_file, encoding="utf-8") as fh:
+            out = save_template(s.database_url, a.kind, a.subject, fh.read(), None)
     else:
         with db.tx(s.database_url) as conn:
             out = {k: dict(conn.execute(sql).fetchall()) for k, sql in {
                 "organisations": "SELECT status, count(*) FROM flightbridge.organisation GROUP BY 1",
                 "approvals": "SELECT status, count(*) FROM flightbridge.approval_task GROUP BY 1",
                 "outbound": "SELECT status, count(*) FROM flightbridge.outbound_message GROUP BY 1",
+                "inbound_by_risk": "SELECT risk, count(*) FROM flightbridge.ai_classification GROUP BY 1",
+                "followups": "SELECT status, count(*) FROM flightbridge.follow_up_task GROUP BY 1",
             }.items()}
     print(json.dumps(out, indent=2, default=str))
     return 0

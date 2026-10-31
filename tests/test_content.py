@@ -80,14 +80,21 @@ def test_empty_requirement_list_fails_so_gate2_cannot_run_without_gate1():
     assert cg.evaluate(good(), [], FULL_PROFILE).failures == ["no_requirements_supplied"]
 
 
-def test_real_sender_profile_blocks_us_until_address_signed_off(rules):
+def test_real_signed_off_profile_passes_us_but_blocks_uk_named_person_without_privacy_notice(rules):
+    from flightbridge.compliance.jurisdiction import Evidence
+    from datetime import datetime, timezone
     from flightbridge.settings import load_sender_profile
     p = load_sender_profile()
+    assert p.postal_address and "110077" in p.postal_address and p.contact_email == "info@weoneaviation.com"
     j = jeval(RecipientContext("info@x.example", "US", True, "o"), rules, SuppressionIndex())
-    r = cg.evaluate(OutboundContent("Partnership enquiry", compose_body(MAIN, p, REF), "initial", REF),
-                    j.content_requirements, p)
-    assert r.decision == "FAIL"
-    assert "physical_postal_address:profile_value_missing:postal_address" in r.failures
+    us = cg.evaluate(OutboundContent("Partnership enquiry", compose_body(MAIN, p, REF), "initial", REF), j.content_requirements, p)
+    assert us.decision == "PASS", us.failures
+    now = datetime.now(timezone.utc)
+    evs = [Evidence(f, "https://x.example", "evidence", "human_verified", now, "emp") for f in
+           ("recipient_is_corporate_subscriber", "legitimate_interests_assessment_done")]
+    jg = jeval(RecipientContext("jane@x.example", "GB", False, "o", evs), rules, SuppressionIndex())
+    gb = cg.evaluate(OutboundContent("Partnership enquiry", compose_body(MAIN, p, REF), "initial", REF), jg.content_requirements, p)
+    assert gb.decision == "FAIL" and "privacy_notice:profile_value_missing:privacy_notice_text" in gb.failures
 
 
 @pytest.mark.parametrize("claim", ["our flying school", "DGCA-approved", "100% placement", "since 2011",

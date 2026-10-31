@@ -202,9 +202,18 @@ class SendingService:
                 return ProcessOutcome(outbound_id, "not_claimed", ["concurrent_claim"])
 
         from .transports import DefiniteRejection, SendRequest, TransportError
+        reply_uid = reply_folder = None
+        with db.tx(self.s.database_url) as conn:
+            ref = conn.execute(
+                """SELECT m.provider_uid, m.provider_folder, m.mailbox FROM flightbridge.outbound_message o
+                     JOIN flightbridge.email_message m ON m.id = o.reply_to_message_id WHERE o.id=%s""", (outbound_id,)).fetchone()
+        # Hostinger's inReplyTo needs a UID in THIS mailbox; mail read via IMAP elsewhere is replied to as a new message.
+        if ref and ref[2] == f"hostinger:{self.s.hostinger_mailbox_id}":
+            reply_uid, reply_folder = ref[0], ref[1]
         try:
             self._get_transport().send(SendRequest(to=email, subject=subject, text=body,
-                                                   display_name=self.s.sender_display_name))
+                                                   display_name=self.s.sender_display_name,
+                                                   reply_uid=reply_uid, reply_folder=reply_folder))
             final, err = "sent", None
         except DefiniteRejection as exc:
             final, err = "failed", str(exc)
@@ -216,7 +225,38 @@ class SendingService:
                 "sent_at = CASE WHEN %s='sent' THEN now() ELSE NULL END WHERE id=%s AND status='sending'",
                 (final, err, final, outbound_id))
             db.audit(conn, f"outbound_{final}", "outbound_message", outbound_id, {"error": err})
+            if final == "sent":
+                self._record_sent(conn, outbound_id)
         return ProcessOutcome(outbound_id, final, [err] if err else [])
+
+    def _record_sent(self, conn, outbound_id: str) -> None:
+        """Same transaction as the 'sent' update: thread + outbound message record, follow-up schedule, statuses."""
+        from ..followups import schedule_for_sent
+        o = conn.execute(
+            """SELECT o.thread_id, o.org_id, o.contact_id, o.kind, o.subject, o.body_text, o.ref_token, o.sent_at,
+                      g.country, c.email, o.approval_task_id
+                 FROM flightbridge.outbound_message o JOIN flightbridge.organisation g ON g.id=o.org_id
+                 JOIN flightbridge.contact c ON c.id=o.contact_id WHERE o.id=%s""", (outbound_id,)).fetchone()
+        thread_id, org_id, contact_id, kind, subject, body, ref, sent_at, country, email, task_id = o
+        if thread_id is None:
+            thread_id = conn.execute(
+                """INSERT INTO flightbridge.email_thread (org_id, contact_id, subject_normalised, status)
+                   VALUES (%s,%s,%s,'awaiting_reply') RETURNING id""", (org_id, contact_id, subject[:300])).fetchone()[0]
+            conn.execute("UPDATE flightbridge.outbound_message SET thread_id=%s WHERE id=%s", (thread_id, outbound_id))
+        else:
+            conn.execute("UPDATE flightbridge.email_thread SET status='awaiting_reply', updated_at=now() WHERE id=%s", (thread_id,))
+        conn.execute(
+            """INSERT INTO flightbridge.email_message (thread_id, direction, mailbox, to_addresses, subject, body_text,
+                                                       fb_ref_token, occurred_at, match_method)
+               VALUES (%s,'outbound',%s,%s,%s,%s,%s,%s,'outbound') ON CONFLICT DO NOTHING""",
+            (thread_id, f"hostinger:{self.s.hostinger_mailbox_id}", [email], subject, body, ref, sent_at))
+        if kind == "initial":
+            schedule_for_sent(conn, outbound_id, thread_id, country, sent_at)
+            conn.execute("""UPDATE flightbridge.organisation SET status='contacted', updated_at=now()
+                            WHERE id=%s AND status IN ('qualified','ready_for_outreach')""", (org_id,))
+        elif kind == "followup":
+            conn.execute("""UPDATE flightbridge.follow_up_task f SET status='done' FROM flightbridge.ai_draft d,
+                            flightbridge.approval_task a WHERE a.id=%s AND d.id=a.draft_id AND f.draft_id=d.id""", (task_id,))
 
     def process_ready(self, limit: int = 20) -> list[ProcessOutcome]:
         """Materialise approved tasks, then process pending outbound rows. Safe to run repeatedly."""

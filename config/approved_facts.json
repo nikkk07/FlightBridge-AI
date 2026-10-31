@@ -1,0 +1,11 @@
+{
+  "_source": "docs/COMPANY_FACTS_RECONCILIATION.md, approved-for-outreach set signed off 2026-10-31. The AI may state only these facts.",
+  "facts": [
+    {"id": "location", "text": "We One Aviation is based at C-404, 3rd Floor, Ramphal Chowk, Dwarka Sector 7, Delhi 110077, India."},
+    {"id": "founded", "text": "We One Aviation was founded in 2009."},
+    {"id": "ground_school", "text": "We teach DGCA ground subjects (theory) in classroom and online batches."},
+    {"id": "counselling", "text": "We provide pilot-career counselling to Indian students."},
+    {"id": "purpose", "text": "We are looking for flying-school partners for our students' practical flight training."},
+    {"id": "contact", "text": "You can reach us at info@weoneaviation.com, +91 93556 11996 or +91 96673 70747."}
+  ]
+}

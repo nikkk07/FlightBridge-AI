@@ -26,6 +26,11 @@ class Settings:
     hostinger_mailbox_id: str | None = None
     hostinger_sent_folder: str | None = None   # None => resolve via specialUse \\Sent
     sender_display_name: str = "We One Aviation"
+    inbound_source: str | None = None          # "hostinger" | "imap" | None (no inbox polling)
+    imap_host: str | None = None
+    imap_port: int = 993
+    imap_user: str | None = None
+    imap_password: str | None = None
     crawler_user_agent: str = "FlightBridgeBot/0.1 (+https://weoneaviation.in/contact)"
 
     @classmethod
@@ -37,6 +42,11 @@ class Settings:
             hostinger_token=env.get("HOSTINGER_MAIL_API_TOKEN") or None,
             hostinger_mailbox_id=env.get("HOSTINGER_MAILBOX_RESOURCE_ID") or None,
             hostinger_sent_folder=env.get("HOSTINGER_SENT_FOLDER") or None,
+            inbound_source=(env.get("INBOUND_SOURCE") or "").strip().lower() or None,
+            imap_host=env.get("IMAP_HOST") or None,
+            imap_port=int(env.get("IMAP_PORT") or 993),
+            imap_user=env.get("IMAP_USER") or None,
+            imap_password=env.get("IMAP_PASSWORD") or None,
         )
 
     @property

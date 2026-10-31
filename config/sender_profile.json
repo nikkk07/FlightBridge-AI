@@ -1,10 +1,11 @@
 {
-  "_status": "Values set to null are pending owner sign-off (docs/COMPANY_FACTS_RECONCILIATION.md). The content gate FAILS any email requiring a null value, so outreach to those jurisdictions is impossible until they are filled.",
+  "_status": "Signed off by the owner on 2026-10-31 (address, founding year, phones, official email). privacy_notice_text is still null, so outreach to named people in the UK/EU stays blocked by the content gate.",
   "legal_name": "We One Aviation",
-  "postal_address": null,
-  "contact_email": null,
-  "phone": "+91 96673 70747",
+  "postal_address": "C-404, 3rd Floor, Ramphal Chowk, Dwarka Sector 7, Delhi 110077, India",
+  "contact_email": "info@weoneaviation.com",
+  "phone": "+91 93556 11996 / +91 96673 70747",
   "opt_out_text": "If you would prefer not to receive further emails from We One Aviation, reply with \"unsubscribe\" and we will not contact you again.",
   "ad_disclosure_text": "This is a business partnership proposal from We One Aviation.",
-  "privacy_notice_text": null
+  "privacy_notice_text": null,
+  "founded_year": 2009
 }

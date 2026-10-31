@@ -2,7 +2,7 @@
 
 Flying-school partnership intelligence and outreach platform for We One Aviation.
 
-**Status:** Phase 2 foundation is implemented and tested. Defaults: `DRY_RUN=true`, `OUTBOUND_ENABLED=false`, DB kill switch engaged. No email has been sent.
+**Status:** Phases 2–7 implemented and tested in dry-run. Defaults: `DRY_RUN=true`, `OUTBOUND_ENABLED=false`, DB kill switch engaged. No email has been sent.
 
 | Path | Content |
 |---|---|
@@ -18,6 +18,9 @@ Flying-school partnership intelligence and outreach platform for We One Aviation
 | `flightbridge/sending/` | The only sending service and transports |
 | `flightbridge/research/` | Safe fetcher, crawler, extractor, registers, qualification, pipeline |
 | `scripts/probe_hostinger.py` | Read-only Hostinger API probe |
+| `scripts/check_crm_copies.py` | Verifies the CRM's copied migrations/rules have not drifted |
+| `docs/OPERATIONS_RUNBOOK.md` | How the cycle runs, CRM controls, go-live steps, incident actions |
+| `flightbridge/inbound/`, `flightbridge/ai/`, `flightbridge/followups.py`, `flightbridge/worker.py` | Inbox, classification, drafting, follow-ups, worker cycle |
 
 Tests: start a Postgres, then `FB_TEST_ADMIN_URL=postgresql://postgres@/postgres?host=/tmp&port=55432 python3 -m pytest -q`. DB tests skip without Postgres.
 

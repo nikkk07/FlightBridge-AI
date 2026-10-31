@@ -140,29 +140,18 @@ def qualify_org(database_url: str, org_id: str, extra_signals: dict | None = Non
     return q
 
 
-INITIAL_TEMPLATE_ID = "initial_intro_v1"
-
-
-def render_initial(org_name: str) -> tuple[str, str]:
-    """Uses ONLY the approved-for-outreach fact set (docs/COMPANY_FACTS_RECONCILIATION.md)."""
-    subject = f"Student referral partnership enquiry for {org_name}"
-    body = (
-        f"Dear {org_name} team,\n\n"
-        "We One Aviation Academy is based in Dwarka, New Delhi, India. We teach DGCA ground subjects "
-        "(theory) in classroom and online batches and provide pilot-career counselling to Indian students.\n\n"
-        "We are looking for flying-school partners to which we can refer students for practical flight "
-        "training, and we would like to understand whether a referral arrangement with your school is possible.\n\n"
-        "Could you let us know who handles international admissions or partnerships?\n\n"
-        "Kind regards,\nWe One Aviation Academy"
-    )
-    return subject, body
-
-
 def draft_initial(database_url: str, org_id: str) -> str | None:
-    """Create one initial-outreach draft + AMBER approval task for the best role contact. Idempotent per contact."""
+    """Create one initial-outreach draft + AMBER approval task from the owner's APPROVED 'initial' template.
+    No approved template => no draft (the system never writes its own outreach text). Idempotent per contact."""
+    from ..outreach.templates import TemplateError, approved_template, org_values, render
     with db.tx(database_url) as conn:
-        org = conn.execute("SELECT name, status FROM flightbridge.organisation WHERE id=%s", (org_id,)).fetchone()
+        org = conn.execute("SELECT name, status, city, country FROM flightbridge.organisation WHERE id=%s",
+                           (org_id,)).fetchone()
         if not org or org[1] != "qualified":
+            return None
+        tpl = approved_template(conn, "initial")
+        if tpl is None:
+            db.audit(conn, "draft_skipped", "organisation", org_id, {"reason": "no_approved_initial_template"})
             return None
         c = conn.execute("""SELECT id FROM flightbridge.contact WHERE org_id=%s
                             ORDER BY is_role_address DESC, discovered_at LIMIT 1""", (org_id,)).fetchone()
@@ -170,14 +159,17 @@ def draft_initial(database_url: str, org_id: str) -> str | None:
             return None
         if conn.execute("SELECT 1 FROM flightbridge.ai_draft WHERE contact_id=%s AND kind='initial'", (c[0],)).fetchone():
             return None
-        subject, body = render_initial(org[0])
+        try:
+            subject, body = render(tpl[1], tpl[2], org_values(org[0], org[2], org[3]))
+        except TemplateError as exc:
+            db.audit(conn, "draft_skipped", "organisation", org_id, {"reason": str(exc)})
+            return None
         d = conn.execute(
             """INSERT INTO flightbridge.ai_draft (org_id, contact_id, kind, risk, intent, summary, subject, body_text,
-                                                  evidence, generator)
-               VALUES (%s,%s,'initial','AMBER','initial_outreach',%s,%s,%s,%s,%s) RETURNING id""",
-            (org_id, c[0], "Initial partnership enquiry (template; approved facts only)", subject, body,
-             json.dumps(["docs/COMPANY_FACTS_RECONCILIATION.md#approved-for-outreach-set-pending-sign-off"]),
-             INITIAL_TEMPLATE_ID)).fetchone()[0]
+                                                  evidence, generator, template_id)
+               VALUES (%s,%s,'initial','AMBER','initial_outreach',%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (org_id, c[0], "First contact from the owner's approved template", subject, body,
+             json.dumps([f"outreach_template:{tpl[0]}"]), f"template:{tpl[0]}", tpl[0])).fetchone()[0]
         t = conn.execute(
             """INSERT INTO flightbridge.approval_task (draft_id, risk, escalation_reason)
                VALUES (%s,'AMBER','All first-contact emails require human approval in this release') RETURNING id""",

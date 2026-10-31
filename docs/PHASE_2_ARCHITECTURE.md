@@ -148,3 +148,24 @@ With the real `config/sender_profile.json`, US/CA outreach is **blocked** until 
 | Hosting for the worker | Scheduled processing | Decide: run it on demand (Mac Mini / CLI) or approve a paid always-on instance |
 | Apply migration 036 in Supabase | CRM Partnerships tab | Paste the file into the Supabase SQL editor (additive; creates schema `flightbridge` only) |
 | Inbound mail ingestion, AI classification, follow-ups | Phases 5–7 | Comes after the probe |
+
+
+## 8. Build update 2026-10-31 (phases 5–7, dry-run)
+
+The owner signed off the company facts (address with PIN 110077, founded 2009, phones +91 93556 11996 and +91 96673 70747, email info@weoneaviation.com). The partnership offer is deferred, so the system writes **no outreach text of its own**: the owner pastes it in CRM → Email templates.
+
+| Component | Files | Tests |
+|---|---|---|
+| Owner-pasted templates (versioned, validated, one approved per kind) | `outreach/templates.py`, migration 002 / CRM 037, CRM `flightbridge_template_rules.py` (copy, drift-checked by `scripts/check_crm_copies.py`) | `test_templates.py`, CRM template tests |
+| Inbox readers: Hostinger API (GET + raw source) and IMAP (read-only) | `inbound/readers.py` | RFC 822 parse test |
+| Ingest, threading, bounce/unsubscribe/rejection effects | `inbound/ingest.py` | `test_inbound_flow.py` (18 scenarios) |
+| Classifier (rules; risk = most severe signal) + prompt-injection guard | `ai/classify.py` | `test_classifier_eval.py`: 40 synthetic cases, gates: 0 false GREEN, 100% recall on unsubscribe/bounce/auto/RED |
+| Optional LLM second opinion (may only raise risk; off by default; not run live) | `ai/llm.py` | merge logic only |
+| Facts-only reply drafts (RED carries a marker the send gate rejects) | `ai/drafting.py`, `config/approved_facts.json` | injection + edit tests |
+| Follow-ups (after real send only; business hours; cancelled by reply/bounce/opt-out) | `followups.py` | due/cancel/business-hours tests |
+| Worker cycle (idempotent; inbox outage does not stop sending queue) | `worker.py`, CLI `run-once` / `worker` | `test_worker.py` |
+| CRM: Templates, Inbox, Metrics & settings, Hostinger webhook (Bearer secret, deduped) | `flightbridge_routes.py`, `FlightBridge.jsx` | 13 CRM tests |
+
+**Blocking finding:** `weoneaviation.com` mail still routes to 129.121.97.39 (MX) and SPF authorises only that IP (checked 2026-10-31 09:32 UTC). Until DNS changes (owner approval needed), Hostinger cannot see replies to info@weoneaviation.com and Hostinger sends would fail SPF. The IMAP reader can read the current server meanwhile if its IMAP login is provided.
+
+The classifier's evaluation set is synthetic, written alongside the rules, so its 100% score shows the rules match their design cases, not real-world accuracy. Real pilot replies must be added before auto-reply is ever considered.

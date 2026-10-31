@@ -140,6 +140,11 @@ def test_pipeline_end_to_end_dry_run(clean_db, rules, site):
     assert st["contacts"] == 3
     q = pipeline.qualify_org(clean_db, org, {"has_cpl": True, "intl_students": True})
     assert q["recommended_action"] == "draft_outreach_for_approval", q
+    assert pipeline.draft_initial(clean_db, org) is None                               # no approved template => no draft
+    from flightbridge.outreach.templates import approve_template, save_template
+    t = save_template(clean_db, "initial", "Partnership enquiry for {{school_name}}",
+                      "Dear {{school_name}} team,\n\nWe One Aviation teaches DGCA ground subjects in Delhi.", _emp(clean_db))
+    approve_template(clean_db, t["id"], _emp(clean_db))
     task = pipeline.draft_initial(clean_db, org)
     assert task and pipeline.draft_initial(clean_db, org) is None                      # one initial draft per contact
     service = SendingService(Settings(database_url=clean_db), rules, FULL_PROFILE,

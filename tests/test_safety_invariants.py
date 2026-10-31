@@ -47,9 +47,11 @@ def test_transport_refuses_construction_without_capability():
         HostingerMailApiTransport(base_url="https://x", token="t", mailbox_id="m", capability=object())
 
 
-def test_no_module_calls_requests_post_except_transport():  # tests may stub .post
+def test_no_module_calls_requests_post_except_transport():
+    # transports.py = the only mail sender; ai/llm.py = optional classifier call to an LLM API (sends no email).
+    allowed = {"sending/transports.py", "ai/llm.py"}
     for f in PKG.rglob("*.py"):
-        if f.name == "transports.py":
+        if f.relative_to(PKG).as_posix() in allowed:
             continue
         assert ".post(" not in f.read_text(), f
 

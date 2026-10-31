@@ -152,12 +152,11 @@ def test_outbound_without_approval_task_is_blocked(clean_db, rules):
     assert out.status == "blocked" and "human_approval_missing_or_mismatched" in out.reasons
 
 
-def test_missing_postal_address_in_real_profile_blocks(clean_db, rules):
+def test_real_signed_off_profile_renders_us_outreach_in_dry_run(clean_db, rules):
     from flightbridge.settings import load_sender_profile
     seed(clean_db)
     out = svc(clean_db, rules, profile=load_sender_profile()).process_ready()
-    assert out[0].status == "blocked"
-    assert "physical_postal_address:profile_value_missing:postal_address" in out[0].reasons
+    assert out[0].status == "dry_run_rendered", out[0].reasons
 
 
 def test_canada_without_human_evidence_needs_review(clean_db, rules):
