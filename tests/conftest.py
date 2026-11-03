@@ -76,7 +76,15 @@ def clean_db(db_url):
                   "('auto_reply_kill_switch','true'::jsonb) ON CONFLICT (key) DO UPDATE SET value='true'::jsonb")
         c.execute("INSERT INTO flightbridge.system_setting (key, value) VALUES ('followup_schedule_days','[4, 9, 16]'::jsonb),"
                   "('followup_business_hours','{\"start\": 9, \"end\": 17}'::jsonb) ON CONFLICT (key) DO NOTHING")
+        c.execute("DELETE FROM flightbridge.system_setting WHERE key='register_files'")
         c.execute("""INSERT INTO flightbridge.system_setting (key, value) VALUES ('autopilot',
                      '{"find_websites": true, "research": true, "qualify": true, "draft": true, "batch_size": 8}'::jsonb)
                      ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""")
     return db_url
+
+
+@pytest.fixture(autouse=True)
+def _no_real_registers(monkeypatch, tmp_path):
+    """Worker cycles in tests must not import the repository's real register files unless a test asks for it."""
+    from flightbridge import automation
+    monkeypatch.setattr(automation, "REGISTER_DIR", tmp_path / "no-registers")

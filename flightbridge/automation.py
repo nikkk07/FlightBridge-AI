@@ -10,10 +10,12 @@ Every stage is idempotent and bounded, so an interrupted run simply continues ne
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import socket
+from pathlib import Path
 
 from . import db
 from .research import pipeline
@@ -55,6 +57,38 @@ def finish_run(database_url: str, run_id: int, stats: dict, error: str | None = 
     with db.tx(database_url) as conn:
         conn.execute("UPDATE flightbridge.worker_run SET finished_at=now(), status=%s, stats=%s, error=%s WHERE id=%s",
                      (status, json.dumps(stats, default=str), error, run_id))
+
+
+# ---------------------------------------------------------------- register sync
+REGISTER_DIR = Path(__file__).resolve().parents[1] / "data" / "registers"
+
+
+def sync_registers(database_url: str, root: Path | None = None) -> dict:
+    """Import every data/registers/**/*_register.csv whose content changed since the last import.
+    The sha256 guard matters: re-importing would refresh checked_at and falsely claim a new regulator check."""
+    from .research.registers import read_csv
+    root = root or REGISTER_DIR
+    out = {"files_imported": 0, "created": 0, "matched": 0, "rejected_rows": 0}
+    with db.tx(database_url) as conn:
+        row = conn.execute("SELECT value FROM flightbridge.system_setting WHERE key='register_files'").fetchone()
+    seen = dict(row[0]) if row and isinstance(row[0], dict) else {}
+    for f in sorted(root.glob("**/*_register.csv")):
+        key = f.relative_to(root).as_posix()
+        digest = hashlib.sha256(f.read_bytes()).hexdigest()
+        if seen.get(key) == digest:
+            continue
+        rows, bad = read_csv(str(f))
+        stats = pipeline.import_rows(database_url, rows)
+        seen[key] = digest
+        with db.tx(database_url) as conn:
+            conn.execute("""INSERT INTO flightbridge.system_setting (key, value) VALUES ('register_files', %s::jsonb)
+                            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()""", (json.dumps(seen),))
+            db.audit(conn, "register_imported", "register", key, {**stats, "sha256": digest, "rejected_rows": len(bad)})
+        out["files_imported"] += 1
+        out["created"] += stats["created"]
+        out["matched"] += stats["matched"]
+        out["rejected_rows"] += len(bad)
+    return out
 
 
 # ---------------------------------------------------------------- stages
@@ -153,6 +187,7 @@ def _stage(out: dict, name: str, fn, *args, **kw) -> None:
 def research_cycle(database_url: str, fetcher: SafeFetcher, cfg: dict | None = None) -> dict:
     cfg = cfg or autopilot(database_url)
     n, out = cfg["batch_size"], {}
+    _stage(out, "registers", sync_registers, database_url)
     if cfg["find_websites"]:
         _stage(out, "find_websites", find_websites, database_url, fetcher, n)
     if cfg["research"]:

@@ -154,7 +154,27 @@ def test_run_now_queue_research_one_school(clean_db):
     with psycopg.connect(clean_db, autocommit=True) as c:
         c.execute("UPDATE flightbridge.system_setting SET value='{\"find_websites\": false, \"research\": false, \"qualify\": false, \"draft\": false}' WHERE key='autopilot'")
     out = run_once(Settings(database_url=clean_db), reader=None, fetcher=f, trigger="queue")
-    assert out["jobs"][0]["research"]["emails_found"] == 1 and out["research"] == {}
+    assert out["jobs"][0]["research"]["emails_found"] == 1 and set(out["research"]) == {"registers"}   # autopilot stages off
     with psycopg.connect(clean_db) as c:
         assert c.execute("SELECT status FROM flightbridge.job_request").fetchone()[0] == "done"
         assert c.execute("SELECT trigger FROM flightbridge.worker_run").fetchone()[0] == "queue"
+
+
+def test_register_sync_imports_once_per_file_version(clean_db, tmp_path):
+    import csv, shutil
+    from flightbridge.automation import REGISTER_DIR as _unused  # noqa: F401 (patched by conftest)
+    src = next(__import__("pathlib").Path(__file__).resolve().parents[1].glob("data/registers/uk_caa/*_register.csv"))
+    d = tmp_path / "regs" / "uk_caa"; d.mkdir(parents=True)
+    shutil.copy(src, d / src.name)
+    n = sum(1 for _ in csv.DictReader(open(src)))
+    first = automation.sync_registers(clean_db, tmp_path / "regs")
+    assert first["files_imported"] == 1 and first["created"] == n and first["rejected_rows"] == 0
+    import psycopg
+    with psycopg.connect(clean_db) as c:
+        checked = c.execute("SELECT max(checked_at) FROM flightbridge.regulatory_approval").fetchone()[0]
+        regions = dict(c.execute("SELECT region, count(*) FROM flightbridge.organisation GROUP BY 1").fetchall())
+    assert regions.get("Scotland") == 1 and regions.get("Wales") == 1
+    # unchanged file -> nothing re-imported, regulator check dates untouched
+    assert automation.sync_registers(clean_db, tmp_path / "regs")["files_imported"] == 0
+    with psycopg.connect(clean_db) as c:
+        assert c.execute("SELECT max(checked_at) FROM flightbridge.regulatory_approval").fetchone()[0] == checked
