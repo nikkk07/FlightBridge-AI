@@ -11,8 +11,8 @@ Flying-school partnership intelligence and outreach platform for We One Aviation
 | `docs/TECHNICAL_FEASIBILITY_MATRIX.md` | Capability feasibility (v2) |
 | `docs/RESEARCH_AND_SOURCE_REGISTER.md` | Source register |
 | `docs/COMPANY_FACTS_RECONCILIATION.md` | Approved-for-outreach fact set |
-| `config/jurisdictions.json` | Legal conditions, evidence policies, content requirements per country |
-| `config/sender_profile.json` | Footer values; nulls block sending where required |
+| `flightbridge/config/jurisdictions.json` | Legal conditions, evidence policies, content requirements per country |
+| `flightbridge/config/sender_profile.json` | Footer values; nulls block sending where required |
 | `db/migrations/001_flightbridge_schema.sql` | Canonical schema (copied to CRM as 037; 002 as 038) |
 | `flightbridge/compliance/` | Gate 1 jurisdiction, gate 2 content, suppression |
 | `flightbridge/sending/` | The only sending service and transports |
@@ -37,6 +37,6 @@ Local: `cd web && npm install && VITE_API_URL=http://localhost:8000 npm run dev`
 The worker (`flightbridge/worker.py` + `flightbridge/automation.py`) is the engine. Each cycle: Run-now requests from the app, then find websites (Google Places, confirmed on the school's own homepage), read the sites (public emails + signals, optional free-LLM summary via Groq or Gemini), score the fit, draft first emails from the approved template into Approvals, then replies, follow-ups and the send queue (still dry-run).
 
 - Always on, free: `.github/workflows/flightbridge-worker.yml` runs every 15 minutes on GitHub Actions once the repository secrets are set (`FLIGHTBRIDGE_DATABASE_URL`, `GOOGLE_PLACES_API_KEY`, optional `GROQ_API_KEY`/`GEMINI_API_KEY` + variable `FB_LLM_PROVIDER`). DRY_RUN/OUTBOUND_ENABLED are fixed off in the workflow.
-- Registers: every `data/registers/**/*_register.csv` is imported automatically by the worker when its content changes (sha256-guarded, so regulator check dates are never refreshed without a new file).
+- Registers: every `flightbridge/registers/**/*_register.csv` is imported automatically by the worker when its content changes (sha256-guarded, so regulator check dates are never refreshed without a new file).
 - Office Mac (optional, faster Run-now): `scripts/mac/install_launchd.sh` installs a LaunchAgent that runs the worker while the Mac is on.
 - Instant Run-now (optional): set `FB_GITHUB_DISPATCH_TOKEN` (fine-grained token, Actions: write on this repo) on the CRM server; Run-now then starts the GitHub worker immediately.

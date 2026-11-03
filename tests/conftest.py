@@ -71,6 +71,7 @@ def clean_db(db_url):
                      flightbridge.organisation, flightbridge.audit_log, flightbridge.job, flightbridge.outreach_template,
                      flightbridge.ai_classification, flightbridge.webhook_event, flightbridge.mailbox_cursor,
                      flightbridge.worker_run, flightbridge.job_request, flightbridge.organisation_profile,
+                     flightbridge.integration_secret, flightbridge.engine_lease,
                      public.employee CASCADE""")
         c.execute("INSERT INTO flightbridge.system_setting (key, value) VALUES ('outbound_kill_switch','true'::jsonb),"
                   "('auto_reply_kill_switch','true'::jsonb) ON CONFLICT (key) DO UPDATE SET value='true'::jsonb")

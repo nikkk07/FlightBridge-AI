@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import time
 
-from . import automation, db, followups
+from . import automation, db, followups, secrets
 from .ai.llm import groq_classifier
 from .compliance.rules import load_rules
 from .inbound.ingest import poll_and_process
@@ -25,10 +25,14 @@ log = logging.getLogger("flightbridge.worker")
 
 
 def build_reader(s: Settings):
-    if s.inbound_source == "hostinger":
-        if not (s.hostinger_token and s.hostinger_mailbox_id):
-            raise ValueError("INBOUND_SOURCE=hostinger needs HOSTINGER_MAIL_API_TOKEN and HOSTINGER_MAILBOX_RESOURCE_ID")
-        return HostingerApiReader(s.hostinger_base_url, s.hostinger_token, s.hostinger_mailbox_id)
+    source = s.inbound_source or (secrets.settings().get("inbound_source") if s.database_url else None)
+    if source == "hostinger":
+        token = s.hostinger_token or secrets.get("hostinger_mail_api_token")
+        mailbox = s.hostinger_mailbox_id or secrets.get("hostinger_mailbox_resource_id")
+        if not (token and mailbox):
+            raise ValueError("Reading replies needs the Hostinger API token and mailbox ID: save them in FlightBridge Settings "
+                             "(or set HOSTINGER_MAIL_API_TOKEN and HOSTINGER_MAILBOX_RESOURCE_ID)")
+        return HostingerApiReader(s.hostinger_base_url, token, mailbox)
     if s.inbound_source == "imap":
         if not (s.imap_host and s.imap_user and s.imap_password):
             raise ValueError("INBOUND_SOURCE=imap needs IMAP_HOST, IMAP_USER and IMAP_PASSWORD")
@@ -38,6 +42,16 @@ def build_reader(s: Settings):
 
 def run_once(s: Settings, reader=None, sender: SendingService | None = None, fetcher=None,
              research: bool = True, trigger: str = "schedule") -> dict:
+    secrets.configure(s.database_url)
+    if not automation.acquire_engine(s.database_url):
+        return {"skipped": "another FlightBridge cycle is running"}
+    try:
+        return _run_cycle(s, reader, sender, fetcher, research, trigger)
+    finally:
+        automation.release_engine(s.database_url)
+
+
+def _run_cycle(s: Settings, reader, sender, fetcher, research: bool, trigger: str) -> dict:
     run_id = automation.start_run(s.database_url, trigger)
     out = {"run_id": run_id, "dry_run": s.dry_run, "outbound_enabled": s.outbound_enabled}
     try:

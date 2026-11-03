@@ -42,6 +42,40 @@ def autopilot(database_url: str) -> dict:
     return cfg
 
 
+# ---------------------------------------------------------------- engine lock (one cycle at a time, anywhere)
+ENGINE_LEASE_SECONDS = 1800
+
+
+def _holder() -> str:
+    """Unique per process, so two runners with the same name (two GitHub runs) can't share the lock."""
+    return f"{runner_name()}|{socket.gethostname()}:{os.getpid()}"
+
+
+def acquire_engine(database_url: str, seconds: int = ENGINE_LEASE_SECONDS) -> bool:
+    """Atomic single-statement lease (pgbouncer-safe). Missing table (migration 004 not applied) => no lock, proceed."""
+    try:
+        with db.tx(database_url) as conn:
+            row = conn.execute("""
+                INSERT INTO flightbridge.engine_lease (name, holder, lease_until)
+                VALUES ('engine', %s, now() + make_interval(secs => %s))
+                ON CONFLICT (name) DO UPDATE SET holder=EXCLUDED.holder, lease_until=EXCLUDED.lease_until
+                    WHERE flightbridge.engine_lease.lease_until < now() OR flightbridge.engine_lease.holder = EXCLUDED.holder
+                RETURNING name""", (_holder(), seconds)).fetchone()
+        return row is not None
+    except Exception as exc:
+        if "engine_lease" in str(exc):
+            return True
+        raise
+
+
+def release_engine(database_url: str) -> None:
+    try:
+        with db.tx(database_url) as conn:
+            conn.execute("UPDATE flightbridge.engine_lease SET lease_until=now() WHERE name='engine' AND holder=%s", (_holder(),))
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------- run log
 def start_run(database_url: str, trigger: str = "schedule") -> int:
     with db.tx(database_url) as conn:
@@ -60,7 +94,7 @@ def finish_run(database_url: str, run_id: int, stats: dict, error: str | None = 
 
 
 # ---------------------------------------------------------------- register sync
-REGISTER_DIR = Path(__file__).resolve().parents[1] / "data" / "registers"
+REGISTER_DIR = Path(__file__).resolve().parent / "registers"   # shipped inside the package
 
 
 def sync_registers(database_url: str, root: Path | None = None) -> dict:

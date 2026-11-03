@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-FACTS_PATH = Path(__file__).resolve().parents[2] / "config" / "approved_facts.json"
+FACTS_PATH = Path(__file__).resolve().parents[1] / "config" / "approved_facts.json"
 NO_DRAFT_INTENTS = {"unsubscribe_request", "partnership_rejection", "auto_reply", "email_delivery_issue"}
 HUMAN_MARKER = "[[HUMAN RESPONSE REQUIRED]]"
 

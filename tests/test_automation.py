@@ -163,7 +163,7 @@ def test_run_now_queue_research_one_school(clean_db):
 def test_register_sync_imports_once_per_file_version(clean_db, tmp_path):
     import csv, shutil
     from flightbridge.automation import REGISTER_DIR as _unused  # noqa: F401 (patched by conftest)
-    src = next(__import__("pathlib").Path(__file__).resolve().parents[1].glob("data/registers/uk_caa/*_register.csv"))
+    src = next(__import__("pathlib").Path(__file__).resolve().parents[1].glob("flightbridge/registers/uk_caa/*_register.csv"))
     d = tmp_path / "regs" / "uk_caa"; d.mkdir(parents=True)
     shutil.copy(src, d / src.name)
     n = sum(1 for _ in csv.DictReader(open(src)))

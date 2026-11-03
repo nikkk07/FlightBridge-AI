@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .compliance.content import SenderProfile
 
-ROOT = Path(__file__).resolve().parents[1]
+PKG = Path(__file__).resolve().parent
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,6 @@ class Settings:
         return (not self.dry_run) and self.outbound_enabled
 
 
-def load_sender_profile(path: Path = ROOT / "config" / "sender_profile.json") -> SenderProfile:
+def load_sender_profile(path: Path = PKG / "config" / "sender_profile.json") -> SenderProfile:
     data = json.loads(path.read_text(encoding="utf-8"))
     return SenderProfile(**{k: data.get(k) for k in SenderProfile.__dataclass_fields__})

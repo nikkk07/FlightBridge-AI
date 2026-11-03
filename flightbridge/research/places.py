@@ -8,7 +8,6 @@ stored source is that homepage.
 """
 from __future__ import annotations
 
-import os
 import re
 from urllib.parse import urlsplit
 
@@ -34,15 +33,17 @@ def name_tokens(name: str) -> set[str]:
     return toks
 
 
-def search(name: str, city: str | None, country: str, api_key: str | None = None, session=None) -> list[dict]:
+def search(name: str, city: str | None, country: str, api_key: str | None = None, session=None,
+           field_mask: str = FIELD_MASK) -> list[dict]:
     import requests
-    key = api_key or os.environ.get("GOOGLE_PLACES_API_KEY")
+    from .. import secrets
+    key = api_key or secrets.get("google_places_api_key")
     if not key:
         raise PlacesError("GOOGLE_PLACES_API_KEY is not set")
     trading = re.split(r"\bT/A\b", name, flags=re.I)[-1].strip()
     q = " ".join(x for x in (trading, "flight training", city, COUNTRY.get(country, country)) if x)
     r = (session or requests).post(ENDPOINT, timeout=20, json={"textQuery": q, "pageSize": 5},
-                                   headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": FIELD_MASK})
+                                   headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": field_mask})
     if r.status_code != 200:
         try:
             msg = r.json().get("error", {}).get("message", "")

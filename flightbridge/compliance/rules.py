@@ -5,7 +5,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-RULES_PATH = Path(__file__).resolve().parents[2] / "config" / "jurisdictions.json"
+RULES_PATH = Path(__file__).resolve().parents[1] / "config" / "jurisdictions.json"
 MODES = {"ALLOW_IF_CONDITIONS", "HUMAN_REVIEW", "BLOCK"}
 METHODS = {"automated_extraction", "human_verified"}
 

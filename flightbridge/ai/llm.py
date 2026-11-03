@@ -43,14 +43,16 @@ PROVIDERS = {
 
 def provider() -> tuple[str, str, str, str] | None:
     """(name, url, key, model) for FB_LLM_PROVIDER, or None when no provider/key is configured."""
-    name = (os.environ.get("FB_LLM_PROVIDER") or "").strip().lower()
+    from .. import secrets
+    cfg = secrets.settings()
+    name = (os.environ.get("FB_LLM_PROVIDER") or cfg.get("llm_provider") or "").strip().lower()
     if name not in PROVIDERS:
         return None
     url, key_env, default_model = PROVIDERS[name]
-    key = os.environ.get(key_env)
+    key = secrets.get(key_env.lower())
     if not key:
         return None
-    return name, url, key, os.environ.get("FB_LLM_MODEL") or default_model
+    return name, url, key, os.environ.get("FB_LLM_MODEL") or cfg.get("llm_model") or default_model
 
 
 def chat_json(system: str, user: str, timeout: int = 30) -> dict | None:

@@ -11,7 +11,8 @@ crm = pathlib.Path(sys.argv[1]) / "backend"
 ok = True
 for canon, copy in (("001_flightbridge_schema.sql", "037_flightbridge_schema.sql"),
                     ("002_templates_inbound_followups.sql", "038_flightbridge_templates_inbound.sql"),
-                    ("003_automation.sql", "039_flightbridge_automation.sql")):
+                    ("003_automation.sql", "039_flightbridge_automation.sql"),
+                    ("004_integrations.sql", "040_flightbridge_integrations.sql")):
     h = hashlib.sha256((ROOT / "db" / "migrations" / canon).read_bytes()).hexdigest()
     text = (crm / "migrations" / copy).read_text()
     body_same = text.split("\n", 5)[5] == (ROOT / "db" / "migrations" / canon).read_text()

@@ -4,7 +4,7 @@ Usage:
   python3 scripts/import_uk_sd31.py data/registers/uk_caa/SD31_v222_2026-10-31.txt
 Writes next to the input:
   *_all.csv         every ATO with course flags (evidence table)
-  *_register.csv    CPL(Aeroplane) flying-training ATOs in the import-register format
+  flightbridge/registers/uk_caa/*_register.csv   CPL(Aeroplane) flying-training ATOs in the import-register format
                     (python -m flightbridge.cli import-register <file>)
 """
 import csv
@@ -37,7 +37,9 @@ with open(f"{stem}_all.csv", "w", newline="", encoding="utf-8") as fh:
                     " | ".join(e.courses), SOURCE_URL, version_label])
 
 cpl = [e for e in entries if e.cpl_aeroplane_flying]
-with open(f"{stem}_register.csv", "w", newline="", encoding="utf-8") as fh:
+REG_OUT = pathlib.Path(__file__).resolve().parents[1] / "flightbridge" / "registers" / "uk_caa" / f"{src.stem}_register.csv"
+REG_OUT.parent.mkdir(parents=True, exist_ok=True)
+with open(REG_OUT, "w", newline="", encoding="utf-8") as fh:
     w = csv.DictWriter(fh, fieldnames=["name", "country", "authority", "classification", "approval_ref", "source_url",
                                        "source_version", "website", "city", "checked_by", "region", "courses"])
     w.writeheader()
@@ -50,4 +52,4 @@ with open(f"{stem}_register.csv", "w", newline="", encoding="utf-8") as fh:
                     "courses": " | ".join(e.courses)})
 
 print(f"{version_label}: {len(entries)} organisations; {len(cpl)} with CPL(Aeroplane) flying courses")
-print(f"wrote {stem}_all.csv and {stem}_register.csv")
+print(f"wrote {stem}_all.csv and {REG_OUT}")
