@@ -152,9 +152,9 @@ def test_run_now_queue_research_one_school(clean_db):
             c.execute("INSERT INTO flightbridge.job_request (kind, org_id) VALUES ('research_school', %s)", (org,))
     f = FakeFetcher({"https://aeros.example": HOME, "https://aeros.example/contact": CONTACT})
     with psycopg.connect(clean_db, autocommit=True) as c:
-        c.execute("UPDATE flightbridge.system_setting SET value='{\"find_websites\": false, \"research\": false, \"qualify\": false, \"draft\": false}' WHERE key='autopilot'")
+        c.execute("UPDATE flightbridge.system_setting SET value='{\"find_websites\": false, \"research\": false, \"qualify\": false, \"draft\": false, \"discover_areas\": false}' WHERE key='autopilot'")
     out = run_once(Settings(database_url=clean_db), reader=None, fetcher=f, trigger="queue")
-    assert out["jobs"][0]["research"]["emails_found"] == 1 and set(out["research"]) == {"registers"}   # autopilot stages off
+    assert out["jobs"][0]["research"]["emails_found"] == 1 and set(out["research"]) <= {"registers", "cricos", "assign_areas", "eligibility"}   # research stages off
     with psycopg.connect(clean_db) as c:
         assert c.execute("SELECT status FROM flightbridge.job_request").fetchone()[0] == "done"
         assert c.execute("SELECT trigger FROM flightbridge.worker_run").fetchone()[0] == "queue"

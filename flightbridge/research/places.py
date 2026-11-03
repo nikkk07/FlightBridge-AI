@@ -18,7 +18,8 @@ ENDPOINT = "https://places.googleapis.com/v1/places:searchText"
 FIELD_MASK = "places.id,places.displayName,places.websiteUri"
 STOP = {"limited", "ltd", "t/a", "ta", "the", "and", "of", "school", "academy", "aviation", "flight", "flying",
         "training", "centre", "center", "services", "group", "plc", "llp", "inc", "llc", "gmbh", "s.l.", "sl", "aero"}
-COUNTRY = {"GB": "United Kingdom", "US": "United States", "CA": "Canada", "AU": "Australia", "ES": "Spain", "IE": "Ireland"}
+COUNTRY = {"GB": "United Kingdom", "US": "United States", "CA": "Canada", "AU": "Australia", "ES": "Spain", "IE": "Ireland",
+           "NZ": "New Zealand", "IN": "India"}
 
 
 class PlacesError(RuntimeError):
@@ -34,14 +35,16 @@ def name_tokens(name: str) -> set[str]:
 
 
 def search(name: str, city: str | None, country: str, api_key: str | None = None, session=None,
-           field_mask: str = FIELD_MASK) -> list[dict]:
+           field_mask: str = FIELD_MASK, query: str | None = None) -> list[dict]:
     import requests
     from .. import secrets
     key = api_key or secrets.get("google_places_api_key")
     if not key:
         raise PlacesError("GOOGLE_PLACES_API_KEY is not set")
     trading = re.split(r"\bT/A\b", name, flags=re.I)[-1].strip()
-    q = " ".join(x for x in (trading, "flight training", city, COUNTRY.get(country, country)) if x)
+    q = query or " ".join(x for x in (trading, "flight training", city, COUNTRY.get(country, country)) if x)
+    if query:
+        q = f"{query}, {COUNTRY.get(country, country)}"
     r = (session or requests).post(ENDPOINT, timeout=20, json={"textQuery": q, "pageSize": 5},
                                    headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": field_mask})
     if r.status_code != 200:

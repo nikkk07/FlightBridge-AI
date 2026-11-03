@@ -79,7 +79,8 @@ def clean_db(db_url):
                   "('followup_business_hours','{\"start\": 9, \"end\": 17}'::jsonb) ON CONFLICT (key) DO NOTHING")
         c.execute("DELETE FROM flightbridge.system_setting WHERE key='register_files'")
         c.execute("""INSERT INTO flightbridge.system_setting (key, value) VALUES ('autopilot',
-                     '{"find_websites": true, "research": true, "qualify": true, "draft": true, "batch_size": 8}'::jsonb)
+                     '{"find_websites": true, "research": true, "qualify": true, "draft": true, "batch_size": 8,
+                       "discover_areas": false, "eligibility": true, "areas_per_cycle": 2}'::jsonb)
                      ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""")
     return db_url
 
@@ -89,3 +90,5 @@ def _no_real_registers(monkeypatch, tmp_path):
     """Worker cycles in tests must not import the repository's real register files unless a test asks for it."""
     from flightbridge import automation
     monkeypatch.setattr(automation, "REGISTER_DIR", tmp_path / "no-registers")
+    # and must stay offline: no CRICOS download from data.gov.au
+    monkeypatch.setattr(automation, "sync_cricos", lambda *a, **k: {"skipped": "offline test"})

@@ -41,7 +41,7 @@ REG_OUT = pathlib.Path(__file__).resolve().parents[1] / "flightbridge" / "regist
 REG_OUT.parent.mkdir(parents=True, exist_ok=True)
 with open(REG_OUT, "w", newline="", encoding="utf-8") as fh:
     w = csv.DictWriter(fh, fieldnames=["name", "country", "authority", "classification", "approval_ref", "source_url",
-                                       "source_version", "website", "city", "checked_by", "region", "courses"])
+                                       "source_version", "website", "city", "checked_by", "region", "courses", "phone"])
     w.writeheader()
     for e in cpl:
         city = next((a for a in reversed(e.address[:-1]) if not any(ch.isdigit() for ch in a)), "")
@@ -49,7 +49,7 @@ with open(REG_OUT, "w", newline="", encoding="utf-8") as fh:
                     "approval_ref": e.approval_ref, "source_url": SOURCE_URL, "source_version": version_label,
                     "website": "", "city": city, "checked_by": "",
                     "region": (uk_nation(e.address) if e.country == "GB" else city) or "",
-                    "courses": " | ".join(e.courses)})
+                    "courses": " | ".join(e.courses), "phone": e.phone or ""})
 
 print(f"{version_label}: {len(entries)} organisations; {len(cpl)} with CPL(Aeroplane) flying courses")
 print(f"wrote {stem}_all.csv and {REG_OUT}")

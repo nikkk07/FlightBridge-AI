@@ -4,6 +4,7 @@ import { useAuth } from './auth';
 import { DEMO } from './api';
 import { SendingBox, Sidebar, useNavData } from './nav';
 import Automation from './pages/Automation';
+import Areas from './pages/Areas';
 import Login from './pages/Login';
 import Overview from './pages/Overview';
 import Schools from './pages/Schools';
@@ -51,6 +52,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/automation" element={<Automation />} />
+          <Route path="/areas" element={<Areas />} />
           <Route path="/schools" element={<Schools />} />
           <Route path="/schools/:id" element={<Schools />} />
           <Route path="/approvals" element={<Approvals />} />

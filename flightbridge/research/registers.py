@@ -13,10 +13,16 @@ AUTHORITY_CLASSES = {
     "FAA":    {"PART141_FAA", "PART61_OPERATOR_UNVERIFIED"},
     "TC":     {"FTU_TC"},
     "CASA":   {"PART141_CASA", "PART142_CASA"},
+    "CRICOS": {"CRICOS_PROVIDER"},
+    "SEVP":   {"SEVP_M1"},
+    "IRCC_DLI": {"DLI_CA"},
+    "CAA_NZ": {"PART141_NZ"},
+    "NZQA":   {"NZQA_PROVIDER"},
 }
 ID_SCHEME = {"DGCA": "dgca_fto", "UK_CAA": "uk_caa_ref", "FAA": "faa_cert", "TC": "tc_ftu",
-             "CASA": "casa_arn", "EU_NCA": "eu_nca_ref"}
-HUMAN_LOOKUP = {"FAA", "TC", "CASA"}
+             "CASA": "casa_arn", "EU_NCA": "eu_nca_ref", "CRICOS": "cricos_code", "SEVP": "sevp_id",
+             "IRCC_DLI": "dli_number", "CAA_NZ": "caa_nz_ref", "NZQA": "nzqa_id"}
+HUMAN_LOOKUP = {"FAA", "TC", "CASA", "SEVP", "IRCC_DLI", "CAA_NZ", "NZQA"}
 REQUIRED = ("name", "country", "authority", "classification", "source_url")
 
 
@@ -38,6 +44,7 @@ class RegisterRow:
     checked_by: str | None       # employee uuid, required for human-lookup authorities
     region: str | None = None    # state / province / UK nation, used for grouping
     courses: tuple = ()          # approved courses as listed by the regulator
+    phone: str | None = None     # phone printed in the register (regulator-published)
 
     @property
     def website_domain(self) -> str | None:
@@ -54,7 +61,7 @@ class RegisterRow:
 def validate_row(raw: dict) -> RegisterRow:
     row = {k: (raw.get(k) or "").strip() or None for k in
            ("name", "country", "authority", "classification", "approval_ref", "source_url",
-            "source_version", "website", "city", "checked_by", "region")}
+            "source_version", "website", "city", "checked_by", "region", "phone")}
     courses = tuple(c.strip() for c in (raw.get("courses") or "").split("|") if c.strip())
     missing = [k for k in REQUIRED if not row[k]]
     if missing:
@@ -71,7 +78,7 @@ def validate_row(raw: dict) -> RegisterRow:
         raise RegisterRowError("source_url_must_be_https")
     if row["authority"] in HUMAN_LOOKUP and not row["checked_by"]:
         raise RegisterRowError("human_lookup_requires_checked_by")
-    if row["authority"] in ("CASA", "FAA", "DGCA", "UK_CAA") and not row["approval_ref"] \
+    if row["authority"] in ("CASA", "FAA", "DGCA", "UK_CAA", "CRICOS") and not row["approval_ref"] \
             and row["classification"] != "PART61_OPERATOR_UNVERIFIED":
         raise RegisterRowError("approval_ref_required_for_dedupe")
     return RegisterRow(**row, courses=courses)

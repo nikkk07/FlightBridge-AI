@@ -1,0 +1,121 @@
+{
+ "_comment": "Per-country eligibility. verified = credential classes from official registers or a person's check. claims = what the school's own website states (a person confirms). Reviewed 2026-11-03.",
+ "US": {
+  "credential": "FAA Part 141 pilot school; SEVP certification for M-1 student visas",
+  "verified": [
+   "PART141_FAA",
+   "SEVP_M1"
+  ],
+  "claims": [
+   "part141",
+   "sevp"
+  ],
+  "confirm_as": {
+   "authority": "FAA",
+   "classification": "PART141_FAA"
+  },
+  "lookup": [
+   [
+    "FAA facility dashboard",
+    "https://www.faa.gov/av-info/facility-dashboard"
+   ],
+   [
+    "SEVP school search",
+    "https://studyinthestates.dhs.gov/school-search"
+   ]
+  ]
+ },
+ "CA": {
+  "credential": "Transport Canada Flight Training Unit; Designated Learning Institution (DLI) for study permits",
+  "verified": [
+   "FTU_TC",
+   "DLI_CA"
+  ],
+  "claims": [
+   "transport_canada",
+   "dli"
+  ],
+  "confirm_as": {
+   "authority": "TC",
+   "classification": "FTU_TC"
+  },
+  "lookup": [
+   [
+    "Transport Canada - choosing a flight school",
+    "https://tc.canada.ca/en/aviation/licensing-pilots-personnel/getting-trained-pilot-crew-member/how-select-flying-school"
+   ],
+   [
+    "IRCC DLI list",
+    "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/prepare/designated-learning-institutions-list.html"
+   ]
+  ]
+ },
+ "AU": {
+  "credential": "CASA Part 141/142 operator; CRICOS registration for student-visa holders",
+  "verified": [
+   "CRICOS_PROVIDER",
+   "PART141_CASA",
+   "PART142_CASA"
+  ],
+  "claims": [
+   "casa_part14x",
+   "cricos_on_site"
+  ],
+  "confirm_as": {
+   "authority": "CASA",
+   "classification": "PART141_CASA"
+  },
+  "lookup": [
+   [
+    "CRICOS search",
+    "https://cricos.education.gov.au/"
+   ],
+   [
+    "CASA flight training operators",
+    "https://www.casa.gov.au/search-centre/flight-training-operators"
+   ]
+  ]
+ },
+ "NZ": {
+  "credential": "CAA NZ Part 141 aviation training organisation; NZQA international student provider",
+  "verified": [
+   "PART141_NZ",
+   "NZQA_PROVIDER"
+  ],
+  "claims": [
+   "caa_nz_part141",
+   "nzqa"
+  ],
+  "confirm_as": {
+   "authority": "CAA_NZ",
+   "classification": "PART141_NZ"
+  },
+  "lookup": [
+   [
+    "CAA NZ",
+    "https://www.aviation.govt.nz/"
+   ],
+   [
+    "NZQA",
+    "https://www.nzqa.govt.nz/"
+   ]
+  ]
+ },
+ "GB": {
+  "credential": "UK CAA Approved Training Organisation (ATO)",
+  "verified": [
+   "ATO_UK"
+  ],
+  "claims": [],
+  "confirm_as": {
+   "authority": "UK_CAA",
+   "classification": "ATO_UK"
+  },
+  "lookup": [
+   [
+    "UK CAA SD31",
+    "https://www.caa.co.uk/publication/download/13488"
+   ]
+  ]
+ }
+}

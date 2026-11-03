@@ -51,6 +51,8 @@ def import_rows(database_url: str, rows: list[RegisterRow]) -> dict:
                 conn.execute("""INSERT INTO flightbridge.organisation_identifier (org_id, scheme, value, source_url)
                                 VALUES (%s,'domain',%s,%s) ON CONFLICT (scheme, value) DO NOTHING""",
                              (org_id, r.website_domain, r.source_url))
+            if r.phone:
+                store_phone(conn, org_id, r.phone, "regulator", r.source_url)
             now = now_utc()
             conn.execute(
                 """INSERT INTO flightbridge.regulatory_approval
@@ -66,8 +68,20 @@ def import_rows(database_url: str, rows: list[RegisterRow]) -> dict:
     return stats
 
 
+def store_phone(conn, org_id, raw: str, source: str, source_url: str | None) -> bool:
+    """Save one phone number (digits-only key de-duplicates formats). Returns True if new."""
+    from .signals import _digits
+    d = _digits(raw or "")
+    if not d:
+        return False
+    row = conn.execute("""INSERT INTO flightbridge.contact_phone (org_id, phone, display, source, source_url)
+                          VALUES (%s,%s,%s,%s,%s) ON CONFLICT (org_id, phone) DO NOTHING RETURNING id""",
+                       (org_id, d, " ".join(raw.split())[:40], source, source_url)).fetchone()
+    return row is not None
+
+
 def store_crawl(database_url: str, org_id: str, result: CrawlResult, profile: dict | None = None) -> dict:
-    stats = {"pages": 0, "contacts": 0, "evidence": 0}
+    stats = {"pages": 0, "contacts": 0, "evidence": 0, "phones": 0}
     text_signals = {"has_cpl": False, "has_ppl": False}
     with db.tx(database_url) as conn:
         for url, status, allowed, sha in result.pages:
@@ -101,6 +115,8 @@ def store_crawl(database_url: str, org_id: str, result: CrawlResult, profile: di
                        VALUES (%s,'refusal_statement_present',%s,%s,'automated_extraction',%s)""",
                     (cid, f.source_url, f.context[:500], now_utc() + timedelta(days=3650)))
                 stats["evidence"] += 1
+        for ph in getattr(result, "phones", []) or []:
+            stats["phones"] += store_phone(conn, org_id, ph["display"], "website", ph["source_url"])
         if profile is not None:
             conn.execute(
                 """INSERT INTO flightbridge.organisation_profile (org_id, summary, signals, evidence, generator, updated_at)
@@ -176,9 +192,16 @@ def draft_initial(database_url: str, org_id: str) -> str | None:
     No approved template => no draft (the system never writes its own outreach text). Idempotent per contact."""
     from ..outreach.templates import TemplateError, approved_template, org_values, render
     with db.tx(database_url) as conn:
-        org = conn.execute("SELECT name, status, city, country FROM flightbridge.organisation WHERE id=%s",
+        org = conn.execute("SELECT name, status, city, country, eligibility FROM flightbridge.organisation WHERE id=%s",
                            (org_id,)).fetchone()
         if not org or org[1] != "qualified":
+            return None
+        elig = org[4]
+        if elig != "eligible_verified":
+            from ..eligibility import evaluate_org       # evidence may be newer than the last check
+            elig = evaluate_org(conn, org_id)
+        if elig != "eligible_verified":
+            db.audit(conn, "draft_skipped", "organisation", org_id, {"reason": "eligibility_not_verified", "eligibility": elig})
             return None
         tpl = approved_template(conn, "initial")
         if tpl is None:

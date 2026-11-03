@@ -49,7 +49,7 @@ def test_transport_refuses_construction_without_capability():
 
 def test_no_module_calls_requests_post_except_transport():
     # transports.py = the only mail sender; ai/llm.py = optional LLM API call; research/places.py = Places search.
-    allowed = {"sending/transports.py", "ai/llm.py", "research/places.py"}
+    allowed = {"sending/transports.py", "ai/llm.py", "research/places.py", "research/discover.py"}
     for f in PKG.rglob("*.py"):
         if f.relative_to(PKG).as_posix() in allowed:
             continue
@@ -58,6 +58,8 @@ def test_no_module_calls_requests_post_except_transport():
     import re
     places = (PKG / "research/places.py").read_text()
     assert re.findall(r'"(https://[^"]+)"', places) == ["https://places.googleapis.com/v1/places:searchText"]
+    discover = (PKG / "research/discover.py").read_text()
+    assert "from .places import ENDPOINT" in discover and not re.findall(r'"https://(?!www\.google\.com/maps)[^"]+"', discover)
     llm_hosts = set(re.findall(r'"https://([^/"]+)/', (PKG / "ai/llm.py").read_text()))
     assert llm_hosts == {"api.groq.com", "generativelanguage.googleapis.com"}
 

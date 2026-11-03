@@ -13,6 +13,14 @@ export const FACTS = {
   recipient_is_sole_trader_or_non_scottish_partnership: 'School is a sole trader or (non-Scottish) partnership',
 };
 
+const SECTIONS = [
+  ['eligible_verified', 'Eligible', 'Approved by the official register or confirmed by a person.'],
+  ['eligible_claimed', 'Check needed', 'The school’s website claims the approval – confirm it on the regulator’s site.'],
+  ['unqualified', 'Unqualified', 'No approval found for this country’s standard, or not a pilot-training school.'],
+  ['unknown', 'Not checked yet', 'Website not read yet. Automation will get to these.'],
+];
+export const ELIG_LABEL = { eligible_verified: 'Eligible', eligible_claimed: 'Check needed', unqualified: 'Unqualified', unknown: 'Not checked' };
+
 export default function Schools() {
   const { id } = useParams();
   const [sp, setSp] = useSearchParams();
@@ -20,8 +28,20 @@ export default function Schools() {
   const country = sp.get('country') || '';
   const status = sp.get('status') || '';
   const region = sp.get('region') || '';
-  const list = useLoad(() => api.schools({ country, status, region, q: sp.get('q') || '' }), [country, status, region, sp.get('q')]);
+  const area = sp.get('area') || '';
+  const section = sp.get('section') || '';
+  const list = useLoad(() => api.schools({ country, status, region, area_id: area, q: sp.get('q') || '', limit: 1000 }),
+    [country, status, region, area, sp.get('q')]);
+  const areas = useLoad(() => api.areas().catch(() => []), []);
+  const areaRow = (areas.data || []).find((a) => String(a.id) === area);
   const countries = useMemo(() => [...new Set((list.data || []).map((s) => s.country))].sort(), [list.data]);
+  const isDemand = areaRow?.kind === 'demand_hub';
+  const counts = useMemo(() => {
+    const c = {}; (list.data || []).forEach((s) => { c[s.eligibility || 'unknown'] = (c[s.eligibility || 'unknown'] || 0) + 1; }); return c;
+  }, [list.data]);
+  const activeSection = isDemand ? '' : (section || SECTIONS.find(([k]) => counts[k])?.[0] || 'eligible_verified');
+  const rows = (list.data || []).filter((s) => !activeSection || (s.eligibility || 'unknown') === activeSection);
+  const [runMsg, setRunMsg] = useState(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -32,8 +52,16 @@ export default function Schools() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
+  useEffect(() => setRunMsg(null), [area]);
 
   const setParam = (k, v) => { const n = new URLSearchParams(sp); v ? n.set(k, v) : n.delete(k); setSp(n); };
+  const searchArea = async () => {
+    setRunMsg(null);
+    try { const r = await api.runNow('search_area', null, Number(area)); setRunMsg({ ok: true, text: r.message }); }
+    catch (e) { setRunMsg({ ok: false, text: e.message }); }
+  };
+  const title = areaRow ? areaRow.name : area === '0' ? `Elsewhere in ${region && region !== '__none__' ? region : countryName(country)}`
+    : !country ? 'All flying schools' : region ? (region === '__none__' ? 'Region not stated' : region) : countryName(country);
 
   return (
     <div className={`page page-wide ${id ? 'has-detail' : ''}`}>
@@ -42,45 +70,67 @@ export default function Schools() {
           {country && (
             <nav className="crumbs" aria-label="Location">
               <Link to="/schools">All flying schools</Link>
-              {region && <> <span aria-hidden="true">/</span> <Link to={`/schools?country=${country}`}>{countryName(country)}</Link></>}
+              {(region || area) && <> <span aria-hidden="true">/</span> <Link to={`/schools?country=${country}`}>{countryName(country)}</Link></>}
+              {areaRow && <> <span aria-hidden="true">/</span> <Link to={`/schools?country=${country}&region=${encodeURIComponent(areaRow.region)}`}>{areaRow.region}</Link></>}
             </nav>
           )}
-          <h1>{!country ? 'All flying schools' : region ? (region === '__none__' ? 'Region not stated' : region) : countryName(country)}</h1>
-          <p className="muted">Every school here is listed by its national regulator. FlightBridge reads their websites; you make the call on fit.</p>
+          <div className="head-row">
+            <h1>{title}{isDemand && <span className="hub-tag hub-tag-lg">student-demand hub</span>}</h1>
+            {areaRow && <button className="btn btn-quiet btn-small" onClick={searchArea}>Search this area now</button>}
+          </div>
+          <p className="muted">
+            {areaRow
+              ? <>{isDemand ? 'Aviation institutes and ground schools within' : 'Flying schools within'} {areaRow.radius_km} km. {areaRow.last_searched_at ? `Last searched ${when(areaRow.last_searched_at, true)}.` : 'Not searched yet – it’s in the queue.'}</>
+              : 'Schools come from official registers and from searching each area. FlightBridge checks each one against its own country’s standard.'}
+          </p>
+          {runMsg && <p className={runMsg.ok ? 'form-ok' : 'form-error'}>{runMsg.text}</p>}
         </header>
+        {!isDemand && (
+          <div className="tabs" role="tablist">
+            {SECTIONS.map(([k, label, help]) => (
+              <button key={k} role="tab" title={help} aria-selected={activeSection === k} className={activeSection === k ? 'on' : ''}
+                onClick={() => setParam('section', k)}>{label} <span className="tab-n">{counts[k] || 0}</span></button>
+            ))}
+          </div>
+        )}
         <div className="filters">
           <input type="search" placeholder="Search name, website or approval number" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search schools" />
-          <select value={country} onChange={(e) => { const n = new URLSearchParams(sp); e.target.value ? n.set('country', e.target.value) : n.delete('country'); n.delete('region'); setSp(n); }} aria-label="Country">
-            <option value="">All countries</option>
-            {[...new Set([...countries, country].filter(Boolean))].map((c) => <option key={c} value={c}>{countryName(c)}</option>)}
-          </select>
+          {!area && (
+            <select value={country} onChange={(e) => { const n = new URLSearchParams(sp); e.target.value ? n.set('country', e.target.value) : n.delete('country'); n.delete('region'); n.delete('area'); setSp(n); }} aria-label="Country">
+              <option value="">All countries</option>
+              {[...new Set([...countries, country].filter(Boolean))].map((c) => <option key={c} value={c}>{countryName(c)}</option>)}
+            </select>
+          )}
           <select value={status} onChange={(e) => setParam('status', e.target.value)} aria-label="Status">
             <option value="">Any status</option>
             {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
+        {activeSection && <p className="muted small section-help">{SECTIONS.find(([k]) => k === activeSection)?.[2]}</p>}
         {list.loading && <Loading />}
         <Problem error={list.error} onRetry={list.reload} />
-        {list.data && list.data.length === 0 && (
-          <Empty title={country || status || sp.get('q') ? 'No schools match these filters' : 'No schools yet'}>
-            {country || status || sp.get('q') ? 'Clear a filter to see more.' : 'Import a regulator register to start. The UK list is ready in the FlightBridge repository.'}
+        {list.data && rows.length === 0 && (
+          <Empty title={list.data.length ? 'Nothing in this section' : areaRow ? 'No schools found here yet' : 'No schools match'}>
+            {list.data.length ? 'Try another section above.' : areaRow ? 'Click “Search this area now”, or wait for the next automatic cycle.' : 'Clear a filter to see more.'}
           </Empty>
         )}
-        {list.data && list.data.length > 0 && (
+        {rows.length > 0 && (
           <table className="list">
             <thead>
               <tr><th>School</th><th>Approval</th><th>Status</th><th className="num">Contacts</th></tr>
             </thead>
             <tbody>
-              {list.data.map((s) => (
+              {rows.map((s) => (
                 <tr key={s.id} className={s.id === id ? 'sel' : ''}>
                   <td>
                     <Link to={`/schools/${s.id}?${sp}`} className="row-link">{s.name}</Link>
                     <small className="muted">{[s.city, s.region, countryName(s.country)].filter((x, i, a) => x && a.indexOf(x) === i).join(', ')}{s.website_domain ? ` – ${s.website_domain}` : ''}</small>
                   </td>
-                  <td><RegRef authority={s.authority_code} value={s.approval_ref} /></td>
+                  <td>{s.approval_ref ? <RegRef authority={s.authority_code} value={s.approval_ref} /> : <span className={`elig elig-${s.eligibility}`}>{ELIG_LABEL[s.eligibility] || 'Not checked'}</span>}</td>
                   <td><Status value={s.status} /></td>
-                  <td className="num">{s.contacts}<span className="m-label"> {Number(s.contacts) === 1 ? 'contact' : 'contacts'}</span></td>
+                  <td className="num">{Number(s.contacts) + Number(s.phones || 0)}<span className="m-label"> contact details</span>
+                    <small className="muted">{s.contacts} email{Number(s.contacts) === 1 ? '' : 's'}, {s.phones || 0} phone{Number(s.phones) === 1 ? '' : 's'}</small>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -128,6 +178,8 @@ function SchoolDetail({ id, onChanged, back }) {
           {s.rejection_reason && <p className="note">Not a fit: {s.rejection_reason}</p>}
 
           <ResearchNow id={id} jobs={s.jobs} hasSite={!!s.website_domain} onQueued={() => d.reload()} />
+
+          <Eligibility s={s} onChanged={() => { d.reload(); onChanged(); }} />
 
           <h3>What their website says</h3>
           {!s.profile ? (
@@ -177,7 +229,17 @@ function SchoolDetail({ id, onChanged, back }) {
           ))}
 
           <h3>Contacts</h3>
-          {s.contacts.length === 0 && <p className="muted">No public email found yet. Contacts come only from the school’s own website.</p>}
+          {(s.phones || []).length > 0 && (
+            <ul className="phones">
+              {s.phones.map((ph) => (
+                <li key={ph.phone}>
+                  <a href={`tel:${ph.phone}`}>{ph.display}</a>
+                  <small className="muted">{PHONE_SOURCE[ph.source] || ph.source}{ph.source_url && ph.source !== 'google_places' ? <> – <a href={ph.source_url} target="_blank" rel="noreferrer noopener">page</a></> : null}</small>
+                </li>
+              ))}
+            </ul>
+          )}
+          {s.contacts.length === 0 && <p className="muted">No public email found yet. Emails come only from the school’s own website – never guessed.</p>}
           {s.contacts.map((c) => <Contact key={c.id} c={c} onAdded={() => d.reload()} />)}
 
           {s.qualification && (
@@ -228,6 +290,68 @@ function SchoolDetail({ id, onChanged, back }) {
         </>
       )}
     </aside>
+  );
+}
+
+const PHONE_SOURCE = { website: 'From their website', regulator: 'From the regulator’s register', google_places: 'From Google', human: 'Added by a person' };
+
+function Eligibility({ s, onChanged }) {
+  const [mode, setMode] = useState(null);
+  const [ref, setRef] = useState('');
+  const [url, setUrl] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  useEffect(() => { setMode(null); setMsg(null); setRef(''); setUrl(''); setNote(''); }, [s.id]);
+  if (s.org_kind === 'ground_school') {
+    return <><h3>Eligibility</h3><p className="muted">Aviation institute in a student-demand hub – not a flying school, so it isn’t checked against flying-school rules.</p></>;
+  }
+  const rule = s.eligibility_rule;
+  const act = async (body) => {
+    setBusy(true); setMsg(null);
+    try { const r = await api.eligibilityDecision(s.id, body); setMsg({ ok: true, text: `Now: ${ELIG_LABEL[r.eligibility]}` }); setMode(null); onChanged(); }
+    catch (e) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <h3>Eligibility</h3>
+      <p><span className={`elig elig-${s.eligibility}`}>{ELIG_LABEL[s.eligibility] || 'Not checked'}</span>
+        {rule && <span className="muted small"> – standard: {rule.credential}</span>}</p>
+      <ul className="reasons">
+        {(s.eligibility_reasons || []).map((r, i) => (
+          <li key={i}>{r.text}
+            {r.excerpt && <small className="muted">“{r.excerpt}”</small>}
+            {r.source_url && <small><a href={r.source_url} target="_blank" rel="noreferrer noopener">Source</a></small>}
+          </li>
+        ))}
+      </ul>
+      {rule && <p className="small muted">Check on: {rule.lookup.map(([label, href], i) => <span key={href}>{i ? ' · ' : ''}<a href={href} target="_blank" rel="noreferrer noopener">{label}</a></span>)}</p>}
+      {mode === 'confirm' ? (
+        <div className="stack">
+          <label>Approval or certificate number (if shown)<input value={ref} onChange={(e) => setRef(e.target.value)} maxLength={80} /></label>
+          <label>Page where you checked it<input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={rule?.lookup?.[0]?.[1]} /></label>
+          <div className="btns">
+            <button className="btn" disabled={busy} onClick={() => act({ decision: 'confirm', reference: ref || null, source_url: url || null })}>Confirm eligible</button>
+            <button className="btn btn-quiet" onClick={() => setMode(null)}>Cancel</button>
+          </div>
+        </div>
+      ) : mode === 'unqualified' ? (
+        <div className="stack">
+          <label>Why is it unqualified?<input value={note} onChange={(e) => setNote(e.target.value)} placeholder="For example: Part 61 only, no student visas" maxLength={500} autoFocus /></label>
+          <div className="btns">
+            <button className="btn btn-danger" disabled={busy || !note.trim()} onClick={() => act({ decision: 'unqualified', note })}>Mark unqualified</button>
+            <button className="btn btn-quiet" onClick={() => setMode(null)}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div className="btns">
+          {s.eligibility !== 'eligible_verified' && rule && <button className="btn btn-small" onClick={() => setMode('confirm')}>I checked – it’s approved</button>}
+          {s.eligibility !== 'unqualified' && <button className="btn btn-small btn-quiet" onClick={() => setMode('unqualified')}>Mark unqualified</button>}
+          <button className="btn btn-small btn-quiet" disabled={busy} onClick={() => act({ decision: 'recheck' })}>Re-check</button>
+        </div>
+      )}
+      {msg && <p className={msg.ok ? 'form-ok small' : 'form-error small'}>{msg.text}</p>}
+    </>
   );
 }
 

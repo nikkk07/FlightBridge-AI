@@ -24,7 +24,8 @@ NAMES = {
     "hostinger_mail_api_token": "HOSTINGER_MAIL_API_TOKEN",
     "hostinger_mailbox_resource_id": "HOSTINGER_MAILBOX_RESOURCE_ID",
 }
-DEFAULT_SETTINGS = {"engine_in_crm": True, "llm_provider": "none", "llm_model": "", "inbound_source": "none"}
+DEFAULT_SETTINGS = {"engine_in_crm": True, "llm_provider": "none", "llm_model": "", "inbound_source": "none",
+                    "store_google_contacts": True}
 _CACHE_SECONDS = 60
 _database_url: str | None = None
 _cache: dict = {}

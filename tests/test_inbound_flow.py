@@ -60,6 +60,12 @@ def setup_sent_initial(url, rules, country="US"):
         con = str(conn.execute("""INSERT INTO flightbridge.contact (org_id,email,email_hash,email_domain,is_role_address,source_url)
                                   VALUES (%s,'info@skyaero.example',%s,'skyaero.example',true,'https://skyaero.example/contact') RETURNING id""",
                                (org, email_hash("info@skyaero.example"))).fetchone()[0])
+        auth, cls = {"US": ("FAA", "PART141_FAA"), "GB": ("UK_CAA", "ATO_UK"), "CA": ("TC", "FTU_TC"),
+                     "AU": ("CASA", "PART141_CASA"), "NZ": ("CAA_NZ", "PART141_NZ")}.get(country, ("FAA", "PART141_FAA"))
+        conn.execute("""INSERT INTO flightbridge.regulatory_approval (org_id, authority_code, classification, approval_ref, status,
+                        source_url, checked_at, checked_by, next_check_due)
+                        VALUES (%s,%s,%s,'TEST-1','verified_by_human','https://regulator.example/check',now(),%s,now()+interval '90 days')""",
+                     (org, auth, cls, emp))
     t = save_template(url, "initial", "Partnership enquiry for {{school_name}}",
                       "Dear {{school_name}} team in {{city}},\n\nWe One Aviation teaches DGCA ground subjects in Delhi.", emp)
     approve_template(url, t["id"], emp)
@@ -98,6 +104,9 @@ def test_dry_run_send_schedules_nothing(clean_db, rules):
         org = str(conn.execute("INSERT INTO flightbridge.organisation (name,country,status) VALUES ('X','US','qualified') RETURNING id").fetchone()[0])
         conn.execute("""INSERT INTO flightbridge.contact (org_id,email,email_hash,email_domain,is_role_address,source_url)
                         VALUES (%s,'a@x.example','h','x.example',true,'https://x.example')""", (org,))
+        conn.execute("""INSERT INTO flightbridge.regulatory_approval (org_id, authority_code, classification, status, source_url,
+                        checked_at, checked_by, next_check_due) VALUES (%s,'FAA','PART141_FAA','verified_by_human',
+                        'https://regulator.example', now(), %s, now()+interval '90 days')""", (org, emp))
     t = save_template(clean_db, "initial", "Enquiry {{school_name}}", "Dear {{school_name}} team, we teach DGCA theory.", emp)
     approve_template(clean_db, t["id"], emp)
     from flightbridge.research.pipeline import draft_initial

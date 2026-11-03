@@ -7,7 +7,7 @@ name = "flightbridge"
 version = "1.1.0"
 description = "FlightBridge AI engine: regulator-listed flying-school research, qualification and approval-gated outreach for We One Aviation"
 requires-python = ">=3.11"
-dependencies = ["psycopg[binary]>=3.1", "requests>=2.31", "cryptography>=41"]
+dependencies = ["psycopg[binary]>=3.1", "requests>=2.31", "cryptography>=41", "openpyxl>=3.1"]
 
 [tool.setuptools]
 include-package-data = true

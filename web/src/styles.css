@@ -434,3 +434,37 @@ details summary { cursor: pointer; font-size: 14px; color: var(--blue); }
 .conn-toggle { margin: 6px 0 4px; }
 .conn-inline { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 14px; color: var(--ink); margin-bottom: 4px; }
 .conn-inline select { width: auto; }
+
+/* ------------------------------------------------------------ areas in the tree */
+.tree-areas { margin-left: 28px !important; }
+.tree .tree-l3row { grid-template-columns: 18px minmax(0, 1fr) auto; }
+.tree-l3row > a { font-size: 13.5px !important; }
+.tree-off > a { color: var(--ink-3); }
+.hub-tag { font-size: 11px; color: var(--magenta); border: 1px solid var(--magenta); border-radius: 3px; padding: 0 4px; margin-left: 6px; vertical-align: 1px; }
+.tree-other { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-2); padding: 5px 8px 5px 22px; text-decoration: none; }
+.tree-other b { font-weight: 400; color: var(--ink-3); }
+.tree-manage { display: block; font-size: 13px; color: var(--blue) !important; padding: 8px 10px 2px; }
+.tree-l3 a.te-unqualified { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--rule-strong); }
+
+/* ------------------------------------------------------------ eligibility + phones */
+.head-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.hub-tag-lg { font-size: 12px; vertical-align: 4px; margin-left: 10px; }
+.tab-n { font-size: 12px; color: var(--ink-3); margin-left: 4px; font-weight: 400; }
+.tabs button.on .tab-n { color: var(--blue); }
+.section-help { margin: -4px 0 12px; }
+.elig { display: inline-block; font-size: 13px; padding: 1px 8px; border-radius: 10px; white-space: nowrap; background: var(--paper); color: var(--ink-2); }
+.elig-eligible_verified { background: var(--green-soft); color: var(--green); }
+.elig-eligible_claimed { background: var(--amber-soft); color: var(--amber); }
+.elig-unqualified { background: var(--red-soft); color: var(--red); }
+.reasons { list-style: none; padding: 0; margin: 4px 0 8px; display: grid; gap: 6px; font-size: 14px; }
+.reasons li { padding-left: 12px; border-left: 2px solid var(--rule-strong); }
+.phones { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 6px; }
+.phones a { font-weight: 700; color: var(--ink); text-decoration: none; }
+.phones a:hover { text-decoration: underline; }
+
+.areas-table td small { display: block; }
+.area-actions { white-space: nowrap; text-align: right; }
+.area-actions .btn + .btn { margin-left: 6px; }
+.row-off td { opacity: 0.55; }
+.add-area-grid { display: grid; grid-template-columns: 1fr 1.2fr 1.2fr 1fr 0.7fr; gap: 10px; margin-bottom: 8px; }
+@media (max-width: 860px) { .add-area-grid { grid-template-columns: 1fr 1fr; } .area-actions { white-space: normal; } }

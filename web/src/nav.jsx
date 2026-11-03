@@ -28,26 +28,25 @@ function Chevron({ open }) {
   return <svg className={`chev ${open ? 'chev-open' : ''}`} viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M3 1.5 6.5 5 3 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>;
 }
 
-function RegionSchools({ country, region }) {
+function AreaSchools({ areaId, country }) {
   const [list, setList] = useState(null);
   useEffect(() => {
-    api.schools({ country, region: region ?? '__none__', limit: SCHOOLS_SHOWN + 1 }).then(setList, () => setList([]));
-  }, [country, region]);
+    api.schools({ area_id: areaId, limit: SCHOOLS_SHOWN + 1 }).then(setList, () => setList([]));
+  }, [areaId]);
   const loc = useLocation();
   if (!list) return <li className="tree-note">Loading…</li>;
+  if (!list.length) return <li className="tree-note">No schools found yet</li>;
   return (
     <>
       {list.slice(0, SCHOOLS_SHOWN).map((s) => (
         <li key={s.id}>
-          <Link className={`tree-school ${loc.pathname === `/schools/${s.id}` ? 'active' : ''}`}
-            to={`/schools/${s.id}?country=${country}${region ? `&region=${encodeURIComponent(region)}` : ''}`} title={s.name}>
+          <Link className={`tree-school ${loc.pathname === `/schools/${s.id}` ? 'active' : ''} te-${s.eligibility}`}
+            to={`/schools/${s.id}?country=${country}&area=${areaId}`} title={s.name}>
             {s.name.replace(/\s+T\/A\s+/i, ' – ')}
           </Link>
         </li>
       ))}
-      <li>
-        <Link className="tree-all" to={`/schools?country=${country}&region=${encodeURIComponent(region ?? '__none__')}`}>View all flying schools</Link>
-      </li>
+      <li><Link className="tree-all" to={`/schools?country=${country}&area=${areaId}`}>View all flying schools</Link></li>
     </>
   );
 }
@@ -60,6 +59,7 @@ function SchoolTree({ regions }) {
   const onSchools = loc.pathname.startsWith('/schools');
   const curC = onSchools ? sp.get('country') : null;
   const curR = onSchools ? sp.get('region') : null;
+  const curA = onSchools ? sp.get('area') : null;
   const total = regions.reduce((a, c) => a + c.total, 0);
 
   return (
@@ -72,23 +72,47 @@ function SchoolTree({ regions }) {
           const ck = c.country;
           return (
             <li key={ck}>
-              <div className={`tree-row ${curC === ck && !curR ? 'active' : ''}`}>
-                <button className="tree-toggle" onClick={() => toggle(ck)} aria-expanded={!!open[ck]} aria-label={`Show regions in ${countryName(ck)}`}><Chevron open={open[ck]} /></button>
+              <div className={`tree-row ${curC === ck && !curR && !curA ? 'active' : ''}`}>
+                <button className="tree-toggle" onClick={() => toggle(ck)} aria-expanded={!!open[ck]} aria-label={`Show states in ${countryName(ck)}`}><Chevron open={open[ck]} /></button>
                 <Link to={`/schools?country=${ck}`}>{countryName(ck)}</Link>
-                <b>{c.total}</b>
+                <b>{c.total || ''}</b>
               </div>
               {open[ck] && (
                 <ul>
                   {c.regions.map((r) => {
                     const rk = `${ck}/${r.region ?? '__none__'}`;
+                    const regionParam = encodeURIComponent(r.region ?? '__none__');
                     return (
                       <li key={rk}>
-                        <div className={`tree-row tree-l2 ${curC === ck && curR === (r.region ?? '__none__') ? 'active' : ''}`}>
-                          <button className="tree-toggle" onClick={() => toggle(rk)} aria-expanded={!!open[rk]} aria-label={`Show schools in ${r.region || 'unspecified region'}`}><Chevron open={open[rk]} /></button>
-                          <Link to={`/schools?country=${ck}&region=${encodeURIComponent(r.region ?? '__none__')}`}>{r.region || 'Region not stated'}</Link>
-                          <b>{r.total}</b>
+                        <div className={`tree-row tree-l2 ${curC === ck && curR === (r.region ?? '__none__') && !curA ? 'active' : ''}`}>
+                          <button className="tree-toggle" onClick={() => toggle(rk)} aria-expanded={!!open[rk]} aria-label={`Show areas in ${r.region || 'unspecified region'}`}><Chevron open={open[rk]} /></button>
+                          <Link to={`/schools?country=${ck}&region=${regionParam}`}>{r.region || 'Region not stated'}</Link>
+                          <b>{r.total || ''}</b>
                         </div>
-                        {open[rk] && <ul className="tree-l3"><RegionSchools country={ck} region={r.region} /></ul>}
+                        {open[rk] && (
+                          <ul className="tree-areas">
+                            {(r.areas || []).map((a) => {
+                              const ak = `area/${a.id}`;
+                              return (
+                                <li key={ak}>
+                                  <div className={`tree-row tree-l3row ${String(a.id) === curA ? 'active' : ''} ${a.enabled ? '' : 'tree-off'}`}>
+                                    <button className="tree-toggle" onClick={() => toggle(ak)} aria-expanded={!!open[ak]} aria-label={`Show schools in ${a.name}`}><Chevron open={open[ak]} /></button>
+                                    <Link to={`/schools?country=${ck}&area=${a.id}`} title={a.kind === 'demand_hub' ? 'Student-demand hub' : 'Flying-school hub'}>
+                                      {a.name}{a.kind === 'demand_hub' && <span className="hub-tag">demand</span>}
+                                    </Link>
+                                    <b>{a.total || ''}</b>
+                                  </div>
+                                  {open[ak] && <ul className="tree-l3"><AreaSchools areaId={a.id} country={ck} /></ul>}
+                                </li>
+                              );
+                            })}
+                            {r.unplaced > 0 && (
+                              <li>
+                                <Link className="tree-other" to={`/schools?country=${ck}&region=${regionParam}&area=0`}>Elsewhere in {r.region || 'this country'} <b>{r.unplaced}</b></Link>
+                              </li>
+                            )}
+                          </ul>
+                        )}
                       </li>
                     );
                   })}
@@ -98,6 +122,7 @@ function SchoolTree({ regions }) {
           );
         })}
       </ul>
+      <Link to="/areas" className={`tree-manage ${loc.pathname === '/areas' ? 'active' : ''}`}>Manage areas</Link>
     </div>
   );
 }
