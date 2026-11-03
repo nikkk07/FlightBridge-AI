@@ -36,7 +36,8 @@ Local: `cd web && npm install && VITE_API_URL=http://localhost:8000 npm run dev`
 
 The worker (`flightbridge/worker.py` + `flightbridge/automation.py`) is the engine. Each cycle: Run-now requests from the app, then find websites (Google Places, confirmed on the school's own homepage), read the sites (public emails + signals, optional free-LLM summary via Groq or Gemini), score the fit, draft first emails from the approved template into Approvals, then replies, follow-ups and the send queue (still dry-run).
 
-- Always on, free: `.github/workflows/flightbridge-worker.yml` runs every 15 minutes on GitHub Actions once the repository secrets are set (`FLIGHTBRIDGE_DATABASE_URL`, `GOOGLE_PLACES_API_KEY`, optional `GROQ_API_KEY`/`GEMINI_API_KEY` + variable `FB_LLM_PROVIDER`). DRY_RUN/OUTBOUND_ENABLED are fixed off in the workflow.
+- Normal setup: the CRM backend installs this package (`requirements.txt`, pinned commit) and runs the engine in its scheduler every 15 minutes (`CRM/backend/flightbridge_engine.py`). API keys are pasted in FlightBridge Settings (CRM tab or Sending & safety -> Connections), checked live, stored encrypted (Fernet, key from `FB_SECRETS_KEY` or the CRM's `SECRET_KEY`). Environment variables still override.
+- Backup runner: `.github/workflows/flightbridge-worker.yml` (manual). The engine lock (`flightbridge.engine_lease`) allows one cycle at a time anywhere.
 - Registers: every `flightbridge/registers/**/*_register.csv` is imported automatically by the worker when its content changes (sha256-guarded, so regulator check dates are never refreshed without a new file).
 - Office Mac (optional, faster Run-now): `scripts/mac/install_launchd.sh` installs a LaunchAgent that runs the worker while the Mac is on.
 - Instant Run-now (optional): set `FB_GITHUB_DISPATCH_TOKEN` (fine-grained token, Actions: write on this repo) on the CRM server; Run-now then starts the GitHub worker immediately.

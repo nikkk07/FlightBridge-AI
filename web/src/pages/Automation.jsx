@@ -5,7 +5,7 @@ import { useAuth } from '../auth';
 import { ago, workerState } from '../nav';
 import { Loading, Problem, useLoad, when } from '../lib';
 
-const RUNNER = { 'github-actions': 'GitHub Actions (cloud, every 15 min)', mac: 'Office Mac' };
+const RUNNER = { 'crm-server': 'the CRM server (every 15 min)', 'github-actions': 'GitHub Actions', mac: 'Office Mac' };
 const runnerLabel = (r) => RUNNER[r] || (r?.startsWith('manual') ? 'Manual run' : r);
 const KIND = { cycle: 'Full cycle', research_school: 'Research one school', find_websites: 'Find websites', research_batch: 'Read websites and score' };
 const ACTION = {
@@ -66,7 +66,8 @@ function errorsOf(run) {
 
 function explain(err) {
   if (/Places API \(New\) has not been used|SERVICE_DISABLED|not been used in project/i.test(err)) return 'Google Places API (New) is not enabled in the Google Cloud project yet. Enable it, and website search starts on the next cycle.';
-  if (/GOOGLE_PLACES_API_KEY is not set/.test(err)) return 'The Google Places key is not set for the worker, so websites can’t be searched. Add it to the worker secrets.';
+  if (/GOOGLE_PLACES_API_KEY is not set/.test(err)) return 'Website search needs the Google Places key. Add it in Sending & safety → Connections.';
+  if (/API key not valid|API_KEY_INVALID/.test(err)) return 'Google says the saved Places key is not valid. Replace it in Sending & safety → Connections.';
   return err;
 }
 

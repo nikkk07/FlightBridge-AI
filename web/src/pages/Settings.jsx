@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Loading, Problem, useLoad, when } from '../lib';
+import Connections from './Connections';
 
 const REASON = { unsubscribe: 'Asked to stop', rejection: 'Declined', complaint: 'Complaint', hard_bounce: 'Address doesn’t exist', legal: 'Legal', manual: 'Added by hand' };
 const SCOPE = { contact: 'One address', organisation: 'Whole school', domain: 'Whole domain' };
@@ -20,6 +21,7 @@ export default function Settings() {
       {s.data && (
         <>
           <KillSwitch engaged={s.data[0].outbound_kill_switch !== false} isAdmin={isAdmin} onChanged={s.reload} />
+          {isAdmin && <Connections />}
           <Followups days={s.data[0].followup_schedule_days || [4, 9, 16]} hours={s.data[0].followup_business_hours} isAdmin={isAdmin} onChanged={s.reload} />
           <DoNotContact rows={s.data[1]} isAdmin={isAdmin} onChanged={s.reload} />
         </>

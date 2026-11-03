@@ -65,6 +65,11 @@ const realApi = {
   automation: () => request('/api/flightbridge/automation'),
   runNow: (kind, org_id) => request('/api/flightbridge/automation/run', { method: 'POST', body: { kind, org_id } }),
   setAutopilot: (body) => request('/api/flightbridge/automation/settings', { method: 'POST', body }),
+  integrations: () => request('/api/flightbridge/integrations'),
+  saveKey: (name, value) => request(`/api/flightbridge/integrations/${name}`, { method: 'POST', body: { value } }),
+  testKey: (name) => request(`/api/flightbridge/integrations/${name}/test`, { method: 'POST' }),
+  removeKey: (name) => request(`/api/flightbridge/integrations/${name}`, { method: 'DELETE' }),
+  saveIntegrationSettings: (body) => request('/api/flightbridge/integrations-settings', { method: 'POST', body }),
   team: () => request('/api/flightbridge/team'),
   setRole: (id, role) => request(`/api/flightbridge/team/${id}/role`, { method: 'POST', body: { role } }),
 };

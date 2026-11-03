@@ -33,6 +33,13 @@ const team = [
   { id: 'e3', name: 'Counsellor (sample)', department: 'Sales', fb_role: '', effective_role: null },
 ];
 let killSwitch = true;
+let integrationSettings = { engine_in_crm: true, llm_provider: 'groq', llm_model: '', inbound_source: 'none' };
+const integrationKeys = [
+  ['google_places_api_key', 'Google Places API key', true, false], ['groq_api_key', 'Groq API key', true, true],
+  ['gemini_api_key', 'Gemini API key', false, null], ['hostinger_mail_api_token', 'Hostinger Mail API token', false, null],
+  ['hostinger_mailbox_resource_id', 'Hostinger mailbox ID', false, null],
+].map(([name, label, saved, okv]) => ({ name, label, saved, last4: saved ? 'a1b2' : null, from_server_env: false, last_test_ok: okv,
+  last_test_message: okv === false ? 'Key works, but Places API (New) is not enabled in its Google Cloud project. Enable it, then test again.' : null }));
 let autopilotCfg = { find_websites: true, research: true, qualify: true, draft: true, batch_size: 8 };
 const jobs = [];
 const runs = [
@@ -128,6 +135,15 @@ export const demoApi = {
     return ok({ queued: true, message: 'Queued (preview only). In the live app it runs on the next worker cycle.' });
   },
   setAutopilot: (b) => { autopilotCfg = b; return ok(b); },
+  integrations: () => ok({ keys: integrationKeys, settings: integrationSettings, dry_run: true, outbound_enabled: false }),
+  saveKey: (name, value) => {
+    const k = integrationKeys.find((x) => x.name === name);
+    Object.assign(k, { saved: true, last4: value.trim().slice(-4), updated_at: new Date().toISOString(), last_test_ok: true, last_test_message: 'Preview only – not checked.' });
+    return ok({ test_ok: true, message: 'Saved (preview only – nothing is stored or checked).' });
+  },
+  testKey: () => ok({ test_ok: true, message: 'Preview only – not checked.' }),
+  removeKey: (name) => { Object.assign(integrationKeys.find((x) => x.name === name), { saved: false, last4: null, last_test_ok: null }); return ok(); },
+  saveIntegrationSettings: (b) => { integrationSettings = { ...integrationSettings, ...b }; return ok(integrationSettings); },
   team: () => ok(team),
   setRole: (id, role) => { const e = team.find((x) => x.id === id); e.fb_role = role || ''; e.effective_role = e.department === 'Admin' ? 'admin' : role || null; return ok(); },
 };

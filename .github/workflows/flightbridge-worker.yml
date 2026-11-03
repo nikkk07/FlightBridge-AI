@@ -1,13 +1,12 @@
-# FlightBridge worker — the always-on part of the system, free on GitHub Actions (public repository).
-# Every 15 minutes: "Run now" requests -> find websites -> read school sites -> qualify -> drafts for approval
-# -> replies (if a mailbox is configured) -> follow-ups -> send queue.
+# FlightBridge worker on GitHub Actions — OPTIONAL backup runner, manual only.
+# The engine normally runs inside the CRM server every 15 minutes, with API keys entered in FlightBridge Settings.
+# Use this only if the CRM engine is switched off. To make it scheduled again, add:  schedule: [{cron: "*/15 * * * *"}]
+# One cycle at a time is guaranteed by the engine lock, so it can never overlap the CRM server's cycle.
 # Sending stays OFF here: DRY_RUN and OUTBOUND_ENABLED are fixed below. Changing them is a deliberate owner edit.
 # Needs repository secrets (Settings -> Secrets and variables -> Actions). Without FLIGHTBRIDGE_DATABASE_URL it skips.
 name: FlightBridge worker
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       trigger:
@@ -29,6 +28,7 @@ jobs:
     env:
       FLIGHTBRIDGE_DATABASE_URL: ${{ secrets.FLIGHTBRIDGE_DATABASE_URL }}
       GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}   # same as the CRM's, so keys saved in the app can be read
       FB_LLM_PROVIDER: ${{ vars.FB_LLM_PROVIDER }}
       FB_LLM_MODEL: ${{ vars.FB_LLM_MODEL }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -61,4 +61,4 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run one cycle
         if: steps.cfg.outputs.ready == 'true'
-        run: python -m flightbridge.cli run-once --trigger "${{ github.event_name == 'schedule' && 'schedule' || inputs.trigger || 'manual' }}"
+        run: python -m flightbridge.cli run-once --trigger "${{ inputs.trigger || 'manual' }}"

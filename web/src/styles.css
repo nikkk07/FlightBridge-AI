@@ -420,3 +420,17 @@ details summary { cursor: pointer; font-size: 14px; color: var(--blue); }
   .wstatus { grid-template-columns: 1fr; }
   .autobar { flex-wrap: wrap; }
 }
+
+/* ------------------------------------------------------------ connections (API keys) */
+.conn { padding: 14px 0; border-top: 1px solid var(--rule); display: grid; gap: 8px; }
+.conn-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.conn-head small { margin-top: 2px; }
+.conn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.conn-row input { flex: 1 1 260px; width: auto; }
+.conn-state { font-size: 13px; padding: 1px 9px; border-radius: 10px; white-space: nowrap; background: var(--paper); color: var(--ink-2); }
+.conn-ok { background: var(--green-soft); color: var(--green); }
+.conn-bad { background: var(--red-soft); color: var(--red); }
+.conn-set { background: var(--blue-soft); color: var(--blue); }
+.conn-toggle { margin: 6px 0 4px; }
+.conn-inline { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 14px; color: var(--ink); margin-bottom: 4px; }
+.conn-inline select { width: auto; }
