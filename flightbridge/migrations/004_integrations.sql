@@ -1,5 +1,5 @@
 -- FlightBridge 004: API keys entered in the app (encrypted), integration settings, and a single-runner engine lock.
--- Canonical source: nikkk07/FlightBridge-AI db/migrations/004_integrations.sql (copied to CRM as 040).
+-- Canonical source: nikkk07/FlightBridge-AI flightbridge/migrations/004_integrations.sql (copied to CRM as 040).
 -- Every name is schema-qualified (the Supabase SQL Editor does not honour SET search_path). Idempotent.
 -- Reversible: DROP TABLE flightbridge.integration_secret, flightbridge.engine_lease;
 --   DELETE FROM flightbridge.system_setting WHERE key='integrations'.

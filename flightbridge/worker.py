@@ -43,6 +43,7 @@ def build_reader(s: Settings):
 def run_once(s: Settings, reader=None, sender: SendingService | None = None, fetcher=None,
              research: bool = True, trigger: str = "schedule") -> dict:
     secrets.configure(s.database_url)
+    db.ensure_schema(s.database_url)          # installs new FlightBridge tables/columns after an upgrade
     if not automation.acquire_engine(s.database_url):
         return {"skipped": "another FlightBridge cycle is running"}
     try:

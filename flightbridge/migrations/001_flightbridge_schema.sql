@@ -1,4 +1,4 @@
--- FlightBridge AI schema (canonical source: nikkk07/FlightBridge-AI db/migrations/001_flightbridge_schema.sql)
+-- FlightBridge AI schema (canonical source: nikkk07/FlightBridge-AI flightbridge/migrations/001_flightbridge_schema.sql)
 -- Lives in its own Postgres schema so it can never collide with CRM tables in `public`.
 -- Additive only: creates schema `flightbridge`; touches nothing in `public` except FKs to public.employee(id).
 -- Idempotent: safe to re-run.

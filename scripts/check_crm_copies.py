@@ -14,9 +14,9 @@ for canon, copy in (("001_flightbridge_schema.sql", "037_flightbridge_schema.sql
                     ("003_automation.sql", "039_flightbridge_automation.sql"),
                     ("004_integrations.sql", "040_flightbridge_integrations.sql"),
                     ("005_areas_eligibility.sql", "041_flightbridge_areas_eligibility.sql")):
-    h = hashlib.sha256((ROOT / "db" / "migrations" / canon).read_bytes()).hexdigest()
+    h = hashlib.sha256((ROOT / "flightbridge" / "migrations" / canon).read_bytes()).hexdigest()
     text = (crm / "migrations" / copy).read_text()
-    body_same = text.split("\n", 5)[5] == (ROOT / "db" / "migrations" / canon).read_text()
+    body_same = text.split("\n", 5)[5] == (ROOT / "flightbridge" / "migrations" / canon).read_text()
     print(f"{copy}: hash-in-header={'yes' if h in text else 'NO'} body-identical={'yes' if body_same else 'NO'}")
     ok &= (h in text) and body_same
 from flightbridge.compliance.content import BANNED_CLAIMS

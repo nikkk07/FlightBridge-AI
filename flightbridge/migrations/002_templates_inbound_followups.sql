@@ -1,5 +1,5 @@
 -- FlightBridge 002: owner-pasted outreach templates, inbound processing, AI classification, follow-up settings.
--- Canonical source: nikkk07/FlightBridge-AI db/migrations/002_templates_inbound_followups.sql (copied to CRM as 038).
+-- Canonical source: nikkk07/FlightBridge-AI flightbridge/migrations/002_templates_inbound_followups.sql (copied to CRM as 038).
 -- Additive and idempotent. Reversible: DROP TABLE flightbridge.outreach_template, flightbridge.ai_classification,
 --   flightbridge.webhook_event, flightbridge.mailbox_cursor CASCADE; ALTER TABLE ... DROP COLUMN (listed below).
 SET client_min_messages = warning;

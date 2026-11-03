@@ -88,7 +88,7 @@ pending_checks ──gates──► authorized ──(DRY_RUN | !OUTBOUND_ENABLE
 
 The DB trigger enforces: terminal states cannot reopen; subject, body and recipient are immutable; `authorized` requires fresh passing checks for this row and content hash; a reply without an approval task cannot progress (auto-reply disabled in this release).
 
-## 4. Database (migration `db/migrations/001_flightbridge_schema.sql` = CRM `037_flightbridge_schema.sql`; 002 = CRM `038`)
+## 4. Database (migration `flightbridge/migrations/001_flightbridge_schema.sql` = CRM `037_flightbridge_schema.sql`; 002 = CRM `038`)
 
 The schema is `flightbridge`, so it cannot collide with CRM tables. It is additive and idempotent (applied twice in tests). The only references into `public` are FKs to `public.employee(id)`. A test confirmed the public schema is byte-for-byte unchanged after applying it on top of CRM migrations 001–035.
 

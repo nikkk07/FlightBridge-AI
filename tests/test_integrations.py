@@ -92,3 +92,16 @@ def test_lock_is_released_after_a_cycle(clean_db):
     with psycopg.connect(clean_db) as c:
         until = c.execute("SELECT lease_until <= now() FROM flightbridge.engine_lease WHERE name='engine'").fetchone()[0]
     assert until is True
+
+
+def test_engine_installs_its_own_schema_upgrades(clean_db):
+    from flightbridge import db
+    assert db.ensure_schema(clean_db) in ("current", "migrated")
+    assert db.ensure_schema(clean_db) == "current"                       # second call is a single SELECT
+    with psycopg.connect(clean_db, autocommit=True) as c:                # simulate an older install (no 041 column)
+        c.execute("ALTER TABLE flightbridge.job_request DROP COLUMN area_id CASCADE")
+        c.execute("UPDATE flightbridge.system_setting SET value='{\"digest\": \"old\"}' WHERE key='schema_files'")
+    assert db.ensure_schema(clean_db) == "migrated"
+    with psycopg.connect(clean_db) as c:
+        assert c.execute("""SELECT count(*) FROM information_schema.columns WHERE table_schema='flightbridge'
+                            AND table_name='job_request' AND column_name='area_id'""").fetchone()[0] == 1

@@ -1,5 +1,5 @@
 -- FlightBridge 003: automation engine — worker run log, run-now job queue, autopilot settings, website profiles.
--- Canonical source: nikkk07/FlightBridge-AI db/migrations/003_automation.sql (copied to CRM as 039).
+-- Canonical source: nikkk07/FlightBridge-AI flightbridge/migrations/003_automation.sql (copied to CRM as 039).
 -- Additive and idempotent. Reversible: DROP TABLE flightbridge.worker_run, flightbridge.job_request,
 --   flightbridge.organisation_profile; DELETE FROM flightbridge.system_setting WHERE key='autopilot'.
 SET client_min_messages = warning;

@@ -1,5 +1,5 @@
 -- FlightBridge 005: Country > State > Area discovery, per-country eligibility, phone numbers, new official registers.
--- Canonical source: nikkk07/FlightBridge-AI db/migrations/005_areas_eligibility.sql (copied to CRM as 041).
+-- Canonical source: nikkk07/FlightBridge-AI flightbridge/migrations/005_areas_eligibility.sql (copied to CRM as 041).
 -- Every name is schema-qualified. Idempotent. Additive (CHECK constraints are widened, never narrowed).
 -- Reversible: DROP TABLE flightbridge.contact_phone, flightbridge.area CASCADE;
 --   ALTER TABLE flightbridge.organisation DROP COLUMN area_id, DROP COLUMN eligibility, DROP COLUMN eligibility_reasons,
