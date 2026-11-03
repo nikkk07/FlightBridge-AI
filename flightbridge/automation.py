@@ -25,8 +25,10 @@ from .research.discover import assign_areas, due_areas, search_area
 from .research.places import PlacesError, find_website
 
 log = logging.getLogger("flightbridge.automation")
-DEFAULT_AUTOPILOT = {"discover_areas": True, "find_websites": True, "research": True, "eligibility": True,
-                     "qualify": True, "draft": True, "batch_size": 8, "areas_per_cycle": 2}
+DEFAULT_AUTOPILOT = {"discover_areas": True, "find_websites": True, "research": True, "find_contacts": True,
+                     "eligibility": True, "qualify": True, "draft": True, "batch_size": 8, "areas_per_cycle": 2}
+PARALLEL_SITES = 4          # different schools' websites are read side by side (each site still gets one request at a time)
+CONTACT_HUNT_RETRY_DAYS = 14
 OPEN_STATUSES = ("discovered", "research_pending")
 WEBSITE_RETRY_DAYS = 30
 
@@ -175,6 +177,33 @@ def find_websites(database_url: str, fetcher: SafeFetcher, limit: int, org_id: s
     return out
 
 
+def _clone(fetcher):
+    """A separate fetcher per worker thread (own HTTP session, robots cache and politeness clock)."""
+    if isinstance(fetcher, SafeFetcher):
+        return SafeFetcher(fetcher.ua, fetcher.delay, fetcher.timeout, fetcher.allow_private)
+    return None
+
+
+def _each_site(fn, ids, fetcher):
+    """Run fn(org_id, fetcher) for many schools, PARALLEL_SITES at a time when the fetcher can be cloned."""
+    if len(ids) <= 1 or _clone(fetcher) is None:
+        return [fn(str(i), fetcher) for i in ids]
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    local = threading.local()
+
+    def run(i):
+        if not hasattr(local, "f"):
+            local.f = _clone(fetcher)
+        try:
+            return fn(str(i), local.f)
+        except Exception as exc:                 # one school failing never stops the batch
+            log.warning("site %s failed: %s", i, exc)
+            return {"error": type(exc).__name__}
+    with ThreadPoolExecutor(max_workers=PARALLEL_SITES) as pool:
+        return list(pool.map(run, ids))
+
+
 def research(database_url: str, fetcher: SafeFetcher, limit: int, org_id: str | None = None) -> dict:
     out = {"researched": 0, "emails_found": 0}
     with db.tx(database_url) as conn:
@@ -185,11 +214,71 @@ def research(database_url: str, fetcher: SafeFetcher, limit: int, org_id: str | 
             ids = [r[0] for r in conn.execute(
                 """SELECT id FROM flightbridge.organisation WHERE deleted_at IS NULL AND website_domain IS NOT NULL
                    AND status = ANY(%s) ORDER BY updated_at LIMIT %s""", (list(OPEN_STATUSES), limit)).fetchall()]
-    for oid in ids:
-        r = pipeline.research_org(database_url, str(oid), fetcher)
+    deep = bool(org_id)                          # a person asked for this school: read it thoroughly
+    for r in _each_site(lambda oid, f: pipeline.research_org(database_url, oid, f, deep=deep), ids, fetcher):
         out["researched"] += 1
         out["emails_found"] += r.get("contacts", 0)
     return out
+
+
+def find_contacts(database_url: str, fetcher: SafeFetcher, limit: int) -> dict:
+    """Contact hunt for schools already read but still without an email: a deeper read of their own website
+    (contact/about/admissions/privacy pages first, more pages, the other www/non-www host), and their phone number
+    from Google when none was published. LinkedIn/Facebook pages and enquiry forms linked from the site are kept as
+    links for a person. Each school is retried at most every CONTACT_HUNT_RETRY_DAYS days."""
+    out = {"searched": 0, "emails_found": 0, "phones_found": 0, "channels_found": 0}
+    with db.tx(database_url) as conn:
+        ids = [r[0] for r in conn.execute("""
+            SELECT o.id FROM flightbridge.organisation o
+             WHERE o.deleted_at IS NULL AND o.website_domain IS NOT NULL AND NOT (o.status = ANY(%s))
+               AND NOT EXISTS (SELECT 1 FROM flightbridge.contact c WHERE c.org_id=o.id)
+               AND NOT EXISTS (SELECT 1 FROM flightbridge.audit_log a WHERE a.entity='organisation' AND a.entity_id=o.id::text
+                               AND a.action='contact_hunt' AND a.at > now() - %s * interval '1 day')
+             ORDER BY (o.eligibility = 'eligible_verified') DESC, o.updated_at LIMIT %s""",
+            (list(OPEN_STATUSES), CONTACT_HUNT_RETRY_DAYS, limit)).fetchall()]
+    for oid, r in zip(ids, _each_site(lambda oid, f: pipeline.research_org(database_url, oid, f, deep=True), ids, fetcher)):
+        out["searched"] += 1
+        out["emails_found"] += r.get("contacts", 0)
+        out["channels_found"] += r.get("channels", 0)
+        with db.tx(database_url) as conn:
+            db.audit(conn, "contact_hunt", "organisation", oid, {k: r.get(k) for k in ("contacts", "phones", "channels", "pages")})
+    try:
+        out["phones_found"] = google_phones(database_url, limit)
+    except PlacesError as exc:
+        out["google_phone_error"] = str(exc)
+    return out
+
+
+def google_phones(database_url: str, limit: int, session=None) -> int:
+    """Phone number from the school's Google Business listing (Place Details), for schools that have none yet."""
+    from . import secrets
+    from .research.pipeline import store_phone
+    if not secrets.settings(database_url).get("store_google_contacts", True):
+        return 0
+    key = secrets.get("google_places_api_key")
+    if not key:
+        return 0
+    import requests
+    with db.tx(database_url) as conn:
+        rows = conn.execute("""
+            SELECT o.id, i.value FROM flightbridge.organisation o
+              JOIN flightbridge.organisation_identifier i ON i.org_id=o.id AND i.scheme='google_place_id'
+             WHERE o.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM flightbridge.contact_phone p WHERE p.org_id=o.id)
+               AND NOT EXISTS (SELECT 1 FROM flightbridge.audit_log a WHERE a.entity='organisation' AND a.entity_id=o.id::text
+                               AND a.action='google_phone_lookup' AND a.at > now() - interval '30 days')
+             LIMIT %s""", (limit,)).fetchall()
+    found = 0
+    for oid, pid in rows:
+        r = (session or requests).get(f"https://places.googleapis.com/v1/places/{pid}", timeout=20,
+                                      headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": "internationalPhoneNumber,nationalPhoneNumber"})
+        if r.status_code != 200:
+            raise PlacesError(f"Places API {r.status_code}: {r.text[:200]}")
+        phone = r.json().get("internationalPhoneNumber") or r.json().get("nationalPhoneNumber")
+        with db.tx(database_url) as conn:
+            if phone:
+                found += store_phone(conn, oid, phone, "google_places", f"https://www.google.com/maps/place/?q=place_id:{pid}")
+            db.audit(conn, "google_phone_lookup", "organisation", oid, {"found": bool(phone)})
+    return found
 
 
 def qualify(database_url: str, limit: int, org_id: str | None = None) -> dict:
@@ -240,7 +329,9 @@ def research_cycle(database_url: str, fetcher: SafeFetcher, cfg: dict | None = N
     if cfg["find_websites"]:
         _stage(out, "find_websites", find_websites, database_url, fetcher, n)
     if cfg["research"]:
-        _stage(out, "research", research, database_url, fetcher, n)
+        _stage(out, "research", research, database_url, fetcher, n * 2)
+    if cfg["find_contacts"]:
+        _stage(out, "find_contacts", find_contacts, database_url, fetcher, max(4, n // 2))
     if cfg["eligibility"]:
         _stage(out, "eligibility", eligibility.run, database_url, n * 4)
     if cfg["qualify"]:

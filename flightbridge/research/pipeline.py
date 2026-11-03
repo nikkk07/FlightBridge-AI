@@ -80,6 +80,13 @@ def store_phone(conn, org_id, raw: str, source: str, source_url: str | None) -> 
     return row is not None
 
 
+def store_channel(conn, org_id, kind: str, url: str, source_url: str | None) -> bool:
+    row = conn.execute("""INSERT INTO flightbridge.contact_channel (org_id, kind, url, source_url) VALUES (%s,%s,%s,%s)
+                          ON CONFLICT (org_id, kind, url) DO NOTHING RETURNING id""",
+                       (org_id, kind, url[:500], source_url)).fetchone()
+    return row is not None
+
+
 def store_crawl(database_url: str, org_id: str, result: CrawlResult, profile: dict | None = None) -> dict:
     stats = {"pages": 0, "contacts": 0, "evidence": 0, "phones": 0}
     text_signals = {"has_cpl": False, "has_ppl": False}
@@ -93,8 +100,8 @@ def store_crawl(database_url: str, org_id: str, result: CrawlResult, profile: di
                 (org_id, url, status, allowed, sha))
             stats["pages"] += 1
         for f in result.findings:
-            if not f.on_site_domain:
-                continue   # only addresses on the school's own domain are attributed to the school
+            if not (f.on_site_domain or f.freemail):
+                continue   # only addresses on the school's own domain(s), or a free-mail address it publishes itself
             if re.search(CPL_RE, f.context, re.I):
                 text_signals["has_cpl"] = True
             cid = conn.execute(
@@ -117,6 +124,12 @@ def store_crawl(database_url: str, org_id: str, result: CrawlResult, profile: di
                 stats["evidence"] += 1
         for ph in getattr(result, "phones", []) or []:
             stats["phones"] += store_phone(conn, org_id, ph["display"], "website", ph["source_url"])
+        stats["channels"] = 0
+        for kind, url, src in getattr(result, "socials", []) or []:
+            stats["channels"] += store_channel(conn, org_id, kind, url, src)
+        for url in getattr(result, "contact_forms", []) or []:
+            stats["channels"] += store_channel(conn, org_id, "contact_form", url, url)
+        conn.execute("UPDATE flightbridge.organisation SET contacts_searched_at=now() WHERE id=%s", (org_id,))
         if profile is not None:
             conn.execute(
                 """INSERT INTO flightbridge.organisation_profile (org_id, summary, signals, evidence, generator, updated_at)
@@ -132,13 +145,19 @@ def store_crawl(database_url: str, org_id: str, result: CrawlResult, profile: di
     return stats
 
 
-def research_org(database_url: str, org_id: str, fetcher: SafeFetcher, max_pages: int = 12) -> dict:
+def research_org(database_url: str, org_id: str, fetcher: SafeFetcher, max_pages: int = 14, deep: bool = False) -> dict:
+    """Read the school's website. deep=True (contact hunt) tries the usual contact/about/privacy paths first and reads more pages."""
     from .signals import extract, summarise
     with db.tx(database_url) as conn:
         row = conn.execute("SELECT website_domain, name FROM flightbridge.organisation WHERE id=%s", (org_id,)).fetchone()
     if not row or not row[0]:
         return {"error": "no_website_domain"}
-    result = crawl(f"https://{row[0]}/", fetcher, max_pages=max_pages)
+    result = crawl(f"https://{row[0]}/", fetcher, max_pages=28 if deep else max_pages, seed_contact_paths=True)
+    if not result.pages or all(st == 0 for _, st, _, _ in result.pages):
+        alt = row[0][4:] if row[0].startswith("www.") else f"www.{row[0]}"     # robots/TLS on the other host name
+        retry = crawl(f"https://{alt}/", fetcher, max_pages=28 if deep else max_pages, seed_contact_paths=True)
+        if retry.pages and any(st for _, st, _, _ in retry.pages):
+            result = retry
     profile = extract(result.texts)
     profile["summary"], profile["generator"] = summarise(row[1], result.texts)
     return store_crawl(database_url, org_id, result, profile)

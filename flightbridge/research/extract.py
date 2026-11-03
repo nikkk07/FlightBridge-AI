@@ -19,7 +19,26 @@ ROLE_LOCALPARTS = {
 REFUSAL_RE = re.compile(
     r"(no unsolicited|not (wish|want) to receive unsolicited|do not send (us )?(any )?(unsolicited|marketing|commercial|promotional)"
     r"|unsolicited (commercial )?(emails?|messages?) (are )?not (accepted|welcome)|no (marketing|sales) (emails?|enquiries))", re.I)
-PRIORITY_PATH = re.compile(r"contact|about|admission|international|partner|enquir|team|staff|management", re.I)
+PRIORITY_PATH = re.compile(r"contact|about|admission|international|partner|enquir|team|staff|management|get-in-touch|reach|location|privacy|impressum|legal", re.I)
+# "fly at school dot com" / "fly (at) school (dot) com" without brackets; only ever kept when it lands on the school's own domain
+SPOKEN_RE = re.compile(r"\b([A-Za-z0-9._%+-]{1,64})\s+(?:at|AT)\s+([A-Za-z0-9-]+(?:\s+(?:dot|DOT)\s+[A-Za-z0-9-]+)+)\b")
+JSONLD_EMAIL_RE = re.compile(r'"email"\s*:\s*"(?:mailto:)?([^"\s]{3,254})"', re.I)
+# Free-mail providers small schools publish on their own website (a web designer's or platform address is never kept).
+FREEMAIL = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "yahoo.co.uk", "icloud.com",
+            "me.com", "aol.com", "bigpond.com", "bigpond.net.au", "optusnet.com.au", "xtra.co.nz", "btinternet.com", "msn.com",
+            "protonmail.com", "proton.me", "zoho.com", "comcast.net", "att.net", "sbcglobal.net", "verizon.net", "shaw.ca", "rogers.com"}
+CREDIT_RE = re.compile(r"(website|site|web design|designed|developed|built|powered|hosted)\s+(by|with)", re.I)
+SOCIAL = (("linkedin", re.compile(r"^https?://([a-z]{2,3}\.)?linkedin\.com/(company|school|in)/[^/?#]+", re.I)),
+          ("facebook", re.compile(r"^https?://(www\.|m\.)?facebook\.com/(?!sharer|share|dialog|plugins|tr\b)[^?#]+", re.I)),
+          ("instagram", re.compile(r"^https?://(www\.)?instagram\.com/(?!p/|share)[^/?#]+", re.I)),
+          ("x", re.compile(r"^https?://(www\.)?(twitter|x)\.com/(?!intent|share|home)[^/?#]+", re.I)),
+          ("youtube", re.compile(r"^https?://(www\.)?youtube\.com/(@|c/|channel/|user/)[^?#]+", re.I)),
+          ("whatsapp", re.compile(r"^https?://(wa\.me|api\.whatsapp\.com)/[^#]+", re.I)))
+
+
+def rot13(s: str) -> str:
+    import codecs
+    return codecs.decode(s, "rot13")
 
 
 @dataclass(frozen=True)
@@ -31,6 +50,13 @@ class EmailFinding:
     is_role_address: bool
     on_site_domain: bool
     refusal_nearby: bool
+    freemail: bool = False          # e.g. a gmail address the school itself publishes on its own site
+
+
+@dataclass
+class PageExtras:
+    socials: list                   # [(kind, url)]
+    contact_form: bool              # the page has an enquiry form (input type=email or a textarea)
 
 
 class _Collector(HTMLParser):
@@ -41,6 +67,8 @@ class _Collector(HTMLParser):
         self.cf: list[str] = []
         self.text: list[str] = []
         self._skip = 0
+        self.form = False
+        self._in_form = 0
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
@@ -51,10 +79,16 @@ class _Collector(HTMLParser):
             (self.mailtos if href.lower().startswith("mailto:") else self.links).append(href)
         if a.get("data-cfemail"):
             self.cf.append(a["data-cfemail"])
+        if tag == "form":
+            self._in_form += 1
+        if self._in_form and (tag == "textarea" or (tag == "input" and (a.get("type") or "").lower() == "email")):
+            self.form = True
 
     def handle_endtag(self, tag):
         if tag in ("script", "style", "noscript") and self._skip:
             self._skip -= 1
+        if tag == "form" and self._in_form:
+            self._in_form -= 1
 
     def handle_data(self, data):
         if not self._skip:
@@ -74,6 +108,11 @@ def site_domain(url: str) -> str:
     return h[4:] if h.startswith("www.") else h
 
 
+def _before(text: str, email: str, width: int = 50) -> str:
+    i = text.lower().find(email.lower())
+    return text[max(0, i - width): i] if i >= 0 else ""
+
+
 def _context(text: str, email: str, width: int = 160) -> str:
     i = text.lower().find(email.split("@")[0].lower())
     if i < 0:
@@ -81,11 +120,21 @@ def _context(text: str, email: str, width: int = 160) -> str:
     return " ".join(text[max(0, i - width): i + len(email) + width].split())
 
 
-def parse(html: str, page_url: str) -> tuple[list[EmailFinding], list[str]]:
+def parse(html: str, page_url: str, also_sites: tuple = ()) -> tuple[list[EmailFinding], list[str]]:
+    findings, links, _ = parse_page(html, page_url, also_sites)
+    return findings, links
+
+
+def _on_site(dom: str, sites) -> bool:
+    return any(s and (dom == s or dom.endswith("." + s)) for s in sites)
+
+
+def parse_page(html: str, page_url: str, also_sites: tuple = ()) -> tuple[list[EmailFinding], list[str], PageExtras]:
     c = _Collector()
     c.feed(html)
     text = htmllib.unescape(" ".join(c.text))
     site = site_domain(page_url)
+    sites = (site, *also_sites)
     candidates: list[tuple[str, str]] = []
     for m in c.mailtos:
         addr = unquote(m[7:].split("?", 1)[0]).strip()
@@ -100,6 +149,15 @@ def parse(html: str, page_url: str) -> tuple[list[EmailFinding], list[str]]:
     for m in OBFUSCATED_RE.finditer(text):
         dom = re.sub(r"\s*[\[\(\{]\s*dot\s*[\]\)\}]\s*", ".", m.group(2), flags=re.I)
         candidates.append((f"{m.group(1)}@{dom}", "obfuscated"))
+        rot = rot13(f"{m.group(1)}@{dom}")              # some sites ROT13 the address as well
+        if _on_site(rot.split("@", 1)[1].lower(), sites):
+            candidates.append((rot, "obfuscated"))
+    for m in SPOKEN_RE.finditer(text):
+        dom = re.sub(r"\s+(?:dot|DOT)\s+", ".", m.group(2))
+        if _on_site(dom.lower(), sites):
+            candidates.append((f"{m.group(1)}@{dom}", "obfuscated"))
+    for m in JSONLD_EMAIL_RE.finditer(html):             # schema.org JSON-LD "email" (inside <script>, not visible text)
+        candidates.append((htmllib.unescape(unquote(m.group(1))), "jsonld"))
 
     findings, seen = [], set()
     for raw, via in candidates:
@@ -112,12 +170,18 @@ def parse(html: str, page_url: str) -> tuple[list[EmailFinding], list[str]]:
         findings.append(EmailFinding(
             email=e, source_url=page_url, via=via, context=ctx or e,
             is_role_address=local.split("+")[0] in ROLE_LOCALPARTS,
-            on_site_domain=bool(site) and (dom == site or dom.endswith("." + site)),
-            refusal_nearby=bool(REFUSAL_RE.search(ctx)) or bool(REFUSAL_RE.search(text))))
-    links = []
+            on_site_domain=bool(site) and _on_site(dom, sites),
+            refusal_nearby=bool(REFUSAL_RE.search(ctx)) or bool(REFUSAL_RE.search(text)),
+            freemail=dom in FREEMAIL and not CREDIT_RE.search(_before(text, e))))
+    links, socials = [], []
     for href in c.links:
         u = urljoin(page_url, href.split("#", 1)[0])
-        if site_domain(u) == site and urlsplit(u).scheme in ("http", "https"):
+        for kind, rx in SOCIAL:
+            m = rx.match(u)
+            if m:
+                socials.append((kind, m.group(0).rstrip("/")))
+                break
+        if site_domain(u) in sites and urlsplit(u).scheme in ("http", "https"):
             links.append(u)
     links.sort(key=lambda u: 0 if PRIORITY_PATH.search(u) else 1)
-    return findings, list(dict.fromkeys(links))
+    return findings, list(dict.fromkeys(links)), PageExtras(list(dict.fromkeys(socials)), c.form)

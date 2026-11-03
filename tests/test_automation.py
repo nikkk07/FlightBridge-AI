@@ -152,7 +152,7 @@ def test_run_now_queue_research_one_school(clean_db):
             c.execute("INSERT INTO flightbridge.job_request (kind, org_id) VALUES ('research_school', %s)", (org,))
     f = FakeFetcher({"https://aeros.example": HOME, "https://aeros.example/contact": CONTACT})
     with psycopg.connect(clean_db, autocommit=True) as c:
-        c.execute("UPDATE flightbridge.system_setting SET value='{\"find_websites\": false, \"research\": false, \"qualify\": false, \"draft\": false, \"discover_areas\": false}' WHERE key='autopilot'")
+        c.execute("UPDATE flightbridge.system_setting SET value='{\"find_websites\": false, \"research\": false, \"qualify\": false, \"draft\": false, \"discover_areas\": false, \"find_contacts\": false}' WHERE key='autopilot'")
     out = run_once(Settings(database_url=clean_db), reader=None, fetcher=f, trigger="queue")
     assert out["jobs"][0]["research"]["emails_found"] == 1 and set(out["research"]) <= {"registers", "cricos", "assign_areas", "eligibility"}   # research stages off
     with psycopg.connect(clean_db) as c:
@@ -178,3 +178,23 @@ def test_register_sync_imports_once_per_file_version(clean_db, tmp_path):
     assert automation.sync_registers(clean_db, tmp_path / "regs")["files_imported"] == 0
     with psycopg.connect(clean_db) as c:
         assert c.execute("SELECT max(checked_at) FROM flightbridge.regulatory_approval").fetchone()[0] == checked
+
+
+def test_contact_hunt_reads_privacy_page_once_and_then_waits(clean_db):
+    import psycopg
+    with psycopg.connect(clean_db, autocommit=True) as c:
+        oid = c.execute("""INSERT INTO flightbridge.organisation (name, country, website_domain, status)
+                           VALUES ('Aeros','GB','aeros.example','research_completed') RETURNING id""").fetchone()[0]
+    f = FakeFetcher({"https://aeros.example": "<p>Home</p>",
+                     "https://aeros.example/privacy-policy": "<p>Data questions: dpo [at] aeros [dot] example</p>"
+                                                             "<a href='https://www.linkedin.com/company/aeros-ft/'>in</a>"})
+    out = automation.find_contacts(clean_db, f, 5)
+    assert out["searched"] == 1 and out["emails_found"] == 1 and out["channels_found"] == 1
+    assert automation.find_contacts(clean_db, f, 5)["searched"] == 0      # has an email now
+    with psycopg.connect(clean_db, autocommit=True) as c:
+        c.execute("DELETE FROM flightbridge.contact_fact_evidence"); c.execute("DELETE FROM flightbridge.contact")
+    assert automation.find_contacts(clean_db, f, 5)["searched"] == 0      # retried only after 14 days
+    with psycopg.connect(clean_db) as c:
+        assert c.execute("SELECT email FROM flightbridge.contact").fetchall() == []
+        assert c.execute("SELECT count(*) FROM flightbridge.audit_log WHERE action='contact_hunt' AND entity_id=%s",
+                         (str(oid),)).fetchone()[0] == 1
