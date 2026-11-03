@@ -26,11 +26,9 @@ Tests: start a Postgres, then `FB_TEST_ADMIN_URL=postgresql://postgres@/postgres
 
 Requirements: Python 3.11+, `psycopg[binary]`, `requests`, `pytest`.
 
-## Web app (`web/`)
+## Where to use it
 
-Standalone FlightBridge workspace (Vite + React), live at https://flying.weoneaviation.in once DNS is added. It signs in with CRM accounts and calls the CRM backend (`/api/auth/login`, `/api/flightbridge/*`), so it shares data with the CRM's Partnerships tab. Roles: CRM Admin department or `permissions.flightbridge = "admin"` → admin; `"researcher"` → can verify schools and record evidence, cannot approve emails, templates or sending.
-
-Local: `cd web && npm install && VITE_API_URL=http://localhost:8000 npm run dev`. Vercel: root directory `web`, env `VITE_API_URL`.
+FlightBridge AI lives inside the CRM (FlightBridge AI tab): Schools by Country › State › Area with Eligible / Check needed / Unqualified sections, Areas, Automation, Approvals, Templates, Inbox, Team and Settings. The engine runs in the CRM server's scheduler. Roles: CRM Admin department or `permissions.flightbridge = "admin"` → admin; `"researcher"` → can verify schools and record evidence, cannot approve emails, templates or sending.
 
 ## How it runs (automation)
 
