@@ -3,7 +3,7 @@
   eligible_verified  an official register lists the credential, or a person confirmed it on the regulator's site
   eligible_claimed   the school's own website states the credential; a person must confirm before outreach
   unqualified        the website was read and states no credential, or it is helicopter/drone-only, or closed
-  unknown            not researched yet, or the country has no rules configured
+  unknown            not researched yet (countries with no rules configured go to eligible_claimed once read)
 
 Rules live in config/eligibility.json. Every decision stores its reasons with the evidence (register entry or
 the exact website excerpt), so the "why" is always visible. Only eligible_verified schools are drafted for outreach.
@@ -16,6 +16,7 @@ from pathlib import Path
 from . import db
 
 RULES_PATH = Path(__file__).resolve().parent / "config" / "eligibility.json"
+NATIONAL_APPROVAL = "NATIONAL_APPROVAL"   # a person's check where the country has no register yet
 CLAIM_TEXT = {
     "part141": "Website says FAA Part 141",
     "sevp": "Website says SEVP / I-20 / M-1 (international students)",
@@ -38,7 +39,7 @@ def evaluate(country: str, regulatory: list[dict], profile: dict | None, pages_r
     rules = rules if rules is not None else load_rules()
     rule = rules.get(country)
     if not rule:
-        return "unknown", [{"code": "no_rules", "text": f"No eligibility rules set for {country} yet"}]
+        return _no_rules(country, regulatory, profile, pages_read, business_closed)
     reasons: list[dict] = []
     if business_closed:
         return "unqualified", [{"code": "closed", "text": "Listed as permanently closed"}]
@@ -64,6 +65,28 @@ def evaluate(country: str, regulatory: list[dict], profile: dict | None, pages_r
     if pages_read > 0:
         return "unqualified", [{"code": "no_credential", "text": f"Website read ({pages_read} pages): no {rule['credential']} found"}]
     return "unknown", [{"code": "not_researched", "text": "Website not read yet"}]
+
+
+def _no_rules(country: str, regulatory: list[dict], profile: dict | None, pages_read: int,
+              business_closed: bool) -> tuple[str, list[dict]]:
+    """Countries with no register set up yet (owner's decision, 2026-11-04): once the website has been read, the
+    school goes to "Check needed" (eligible_claimed) for a person to confirm on the national aviation authority's
+    site; that confirmation (NATIONAL_APPROVAL) makes it verified. Never drafted for outreach before that."""
+    if business_closed:
+        return "unqualified", [{"code": "closed", "text": "Listed as permanently closed"}]
+    for r in regulatory:
+        if r["classification"] == NATIONAL_APPROVAL and r["status"] == "verified_by_human":
+            return "eligible_verified", [{"code": "verified", "text": f"Confirmed by a person on the aviation authority's site "
+                                          f"{r.get('approval_ref') or ''}".strip(), "source_url": r.get("source_url")}]
+    signals = (profile or {}).get("signals") or {}
+    if signals.get("helicopter") and not signals.get("aeroplane") and not signals.get("has_cpl"):
+        return "unqualified", [{"code": "helicopter_only", "text": "Website mentions helicopters only (no aeroplane training)"}]
+    if signals.get("drone") and not signals.get("aeroplane") and not signals.get("has_cpl"):
+        return "unqualified", [{"code": "drone_only", "text": "Website is about drones, not pilot training"}]
+    if pages_read > 0:
+        return "eligible_claimed", [{"code": "no_rules", "text": f"No approval register for {country} set up yet: check the "
+                                     f"school's approval on the national aviation authority's site"}]
+    return "unknown", [{"code": "no_rules", "text": f"No eligibility rules set for {country} yet"}]
 
 
 def evaluate_org(conn, org_id) -> str:
@@ -105,7 +128,9 @@ def confirm(conn, org_id, employee_id, reference: str | None, source_url: str | 
     country = conn.execute("SELECT country FROM flightbridge.organisation WHERE id=%s", (org_id,)).fetchone()[0]
     rule = load_rules().get(country)
     if not rule:
-        raise ValueError(f"No eligibility rules for {country}")
+        if not source_url:
+            raise ValueError("Paste the aviation authority page you checked")
+        rule = {"confirm_as": {"authority": "NATIONAL_CAA", "classification": NATIONAL_APPROVAL}, "lookup": [[None, source_url]]}
     c = rule["confirm_as"]
     conn.execute("""INSERT INTO flightbridge.regulatory_approval (org_id, authority_code, classification, approval_ref, status,
                        source_url, checked_at, checked_by, next_check_due)

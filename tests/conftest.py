@@ -80,7 +80,7 @@ def clean_db(db_url):
         c.execute("DELETE FROM flightbridge.system_setting WHERE key='register_files'")
         c.execute("""INSERT INTO flightbridge.system_setting (key, value) VALUES ('autopilot',
                      '{"find_websites": true, "research": true, "qualify": true, "draft": true, "batch_size": 8,
-                       "discover_areas": false, "eligibility": true, "areas_per_cycle": 2}'::jsonb)
+                       "discover_areas": false, "eligibility": true, "areas_per_cycle": 2, "world_sweep": false}'::jsonb)
                      ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""")
     return db_url
 
@@ -92,3 +92,8 @@ def _no_real_registers(monkeypatch, tmp_path):
     monkeypatch.setattr(automation, "REGISTER_DIR", tmp_path / "no-registers")
     # and must stay offline: no CRICOS download from data.gov.au
     monkeypatch.setattr(automation, "sync_cricos", lambda *a, **k: {"skipped": "offline test"})
+    # and no world sweep (it calls Google); tests/test_world_sweep.py drives flightbridge.research.sweep directly
+    import types
+    monkeypatch.setattr(automation, "sweep", types.SimpleNamespace(
+        run=lambda *a, **k: {"skipped": "offline test"}, locate_known=lambda *a, **k: {"skipped": "offline test"},
+        LOCATE_SKU="place_details_pro"))

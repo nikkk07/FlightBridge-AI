@@ -49,7 +49,7 @@ def test_transport_refuses_construction_without_capability():
 
 def test_no_module_calls_requests_post_except_transport():
     # transports.py = the only mail sender; ai/llm.py = optional LLM API call; research/places.py = Places search.
-    allowed = {"sending/transports.py", "ai/llm.py", "research/places.py", "research/discover.py"}
+    allowed = {"sending/transports.py", "ai/llm.py", "research/places.py", "research/discover.py", "research/sweep.py"}
     for f in PKG.rglob("*.py"):
         if f.relative_to(PKG).as_posix() in allowed:
             continue
@@ -58,6 +58,10 @@ def test_no_module_calls_requests_post_except_transport():
     import re
     places = (PKG / "research/places.py").read_text()
     assert re.findall(r'"(https://[^"]+)"', places) == ["https://places.googleapis.com/v1/places:searchText"]
+    # the world sweep posts only to that same endpoint (imported, never its own URL)
+    sweep_src = (PKG / "research/sweep.py").read_text()
+    assert "from .places import ENDPOINT" in sweep_src
+    assert all(u.startswith("https://places.googleapis.com/v1/places/") for u in re.findall(r'"(https?://[^"]+)"', sweep_src))
     discover = (PKG / "research/discover.py").read_text()
     assert "from .places import ENDPOINT" in discover and not re.findall(r'"https://(?!www\.google\.com/maps)[^"]+"', discover)
     llm_hosts = set(re.findall(r'"https://([^/"]+)/', (PKG / "ai/llm.py").read_text()))

@@ -62,7 +62,14 @@ def area_id(url, name="Sanford (Orlando)"):
     ("CA", [], {"drone": True}, 3, False, "unqualified"),
     ("CA", [], {"transport_canada": True, "aeroplane": True}, 3, True, "unqualified"),
     ("US", [{"classification": "PART141_FAA", "status": "verified_by_human", "authority_code": "FAA", "approval_ref": None, "source_url": "u"}], {}, 0, False, "eligible_verified"),
-    ("IN", [], {"part141": True}, 3, False, "unknown"),
+    # countries with no register (owner's decision 2026-11-04): read website -> "Check needed" (eligible_claimed)
+    ("IN", [], {"part141": True}, 3, False, "eligible_claimed"),
+    ("ZA", [], {"aeroplane": True}, 2, False, "eligible_claimed"),
+    ("ZA", [], {}, 0, False, "unknown"),
+    ("ZA", [], {"helicopter": True}, 2, False, "unqualified"),
+    ("ZA", [], {"aeroplane": True}, 2, True, "unqualified"),
+    ("ZA", [{"classification": "NATIONAL_APPROVAL", "status": "verified_by_human", "authority_code": "NATIONAL_CAA", "approval_ref": "ATO 123", "source_url": "u"}], {}, 2, False, "eligible_verified"),
+    ("IN", [{"classification": "FTO_DGCA", "status": "listed_in_register", "authority_code": "DGCA", "approval_ref": None, "source_url": "u"}], {}, 2, False, "eligible_claimed"),
 ])
 def test_eligibility_rules(country, reg, signals, pages, closed, expected):
     decision, reasons = eligibility.evaluate(country, reg, {"signals": signals, "evidence": []}, pages, closed)
@@ -123,7 +130,10 @@ def test_area_search_creates_dedupes_filters_and_stores_google_phone(clean_db):
         rows = c.execute("""SELECT o.name, o.region, o.city, o.website_domain, a.name FROM flightbridge.organisation o
                             JOIN flightbridge.area a ON a.id=o.area_id ORDER BY o.name""").fetchall()
         phones = c.execute("SELECT phone, source FROM flightbridge.contact_phone").fetchall()
+        seen = c.execute("SELECT name, is_new FROM flightbridge.detection ORDER BY id").fetchall()
     assert rows[1] == ("Sanford Flight Academy", "Florida", "Sanford", "sfa.example", "Sanford (Orlando)")
+    assert seen[:2] == [("Sanford Flight Academy", True), ("Old Aero Club", True)] and seen[2:] == [
+        ("Sanford Flight Academy", False), ("Old Aero Club", False)]                  # each search logged for the globe
     assert ("+14075550100", "google_places") in phones
 
 

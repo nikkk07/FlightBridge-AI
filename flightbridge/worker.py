@@ -17,6 +17,7 @@ from .ai.llm import groq_classifier
 from .compliance.rules import load_rules
 from .inbound.ingest import poll_and_process
 from .inbound.readers import HostingerApiReader, ImapReader
+from .research import quota
 from .research.fetch import SafeFetcher
 from .sending.service import SendingService
 from .settings import Settings, load_sender_profile
@@ -44,6 +45,7 @@ def run_once(s: Settings, reader=None, sender: SendingService | None = None, fet
              research: bool = True, trigger: str = "schedule") -> dict:
     secrets.configure(s.database_url)
     db.ensure_schema(s.database_url)          # installs new FlightBridge tables/columns after an upgrade
+    quota.install(s.database_url)             # every Google Places call counted; refused at the free monthly cap
     if not automation.acquire_engine(s.database_url):
         return {"skipped": "another FlightBridge cycle is running"}
     try:

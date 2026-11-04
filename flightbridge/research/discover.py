@@ -127,6 +127,7 @@ def search_area(database_url: str, area_id: int, session=None) -> dict:
             region = _component(p, "administrative_area_level_1") or area["region"]
             city = _component(p, "locality") or _component(p, "postal_town") or area["name"]
             kind = "flying_school" if area["kind"] == "training_hub" else "ground_school"
+            before = out["new"]
             with db.tx(database_url) as conn:
                 oid = match_existing(conn, pid, domain, name, country)
                 if oid is None:
@@ -149,6 +150,10 @@ def search_area(database_url: str, area_id: int, session=None) -> dict:
                     out["matched"] += 1
                 conn.execute("""INSERT INTO flightbridge.organisation_identifier (org_id, scheme, value, source_url)
                                 VALUES (%s,'google_place_id',%s,NULL) ON CONFLICT (scheme, value) DO NOTHING""", (oid, pid))
+                if loc.get("latitude") is not None and loc.get("longitude") is not None:   # for the live globe
+                    conn.execute("""INSERT INTO flightbridge.detection (org_id, country, name, lat, lng, is_new)
+                                    VALUES (%s,%s,%s,%s,%s,%s)""",
+                                 (oid, country, name, loc["latitude"], loc["longitude"], out["new"] > before))
                 if p.get("businessStatus") == "CLOSED_PERMANENTLY":
                     out["closed"] += 1
                     db.audit(conn, "place_closed", "organisation", oid, {"place_id": pid})

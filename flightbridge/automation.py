@@ -21,12 +21,14 @@ from . import db
 from .research import pipeline
 from .research.fetch import SafeFetcher
 from . import eligibility
+from .research import quota, sweep
 from .research.discover import assign_areas, due_areas, search_area
 from .research.places import PlacesError, find_website
 
 log = logging.getLogger("flightbridge.automation")
 DEFAULT_AUTOPILOT = {"discover_areas": True, "find_websites": True, "research": True, "find_contacts": True,
-                     "eligibility": True, "qualify": True, "draft": True, "batch_size": 8, "areas_per_cycle": 2}
+                     "eligibility": True, "qualify": True, "draft": True, "batch_size": 8, "areas_per_cycle": 2,
+                     "world_sweep": True}
 PARALLEL_SITES = 4          # different schools' websites are read side by side (each site still gets one request at a time)
 CONTACT_HUNT_RETRY_DAYS = 14
 OPEN_STATUSES = ("discovered", "research_pending")
@@ -243,7 +245,7 @@ def find_contacts(database_url: str, fetcher: SafeFetcher, limit: int) -> dict:
         with db.tx(database_url) as conn:
             db.audit(conn, "contact_hunt", "organisation", oid, {k: r.get(k) for k in ("contacts", "phones", "channels", "pages")})
     try:
-        out["phones_found"] = google_phones(database_url, limit)
+        out["phones_found"] = google_phones(database_url, _paced(database_url, "place_details_enterprise", limit))
     except PlacesError as exc:
         out["google_phone_error"] = str(exc)
     return out
@@ -308,6 +310,14 @@ def draft(database_url: str, limit: int, org_id: str | None = None) -> dict:
     return {"drafts_created": made}
 
 
+def _paced(database_url: str, sku: str, n: int) -> int:
+    """Batch size cut to what Google's free monthly allowance can spread evenly over the month."""
+    try:
+        return max(0, min(n, quota.allowance(database_url, sku)))
+    except Exception:            # google_usage table missing (migration 007 not applied yet): leave n as it was
+        return n
+
+
 def _stage(out: dict, name: str, fn, *args, **kw) -> None:
     try:
         out[name] = fn(*args, **kw)
@@ -325,9 +335,12 @@ def research_cycle(database_url: str, fetcher: SafeFetcher, cfg: dict | None = N
     _stage(out, "cricos", sync_cricos, database_url)
     if cfg["discover_areas"] and cfg["areas_per_cycle"]:
         _stage(out, "discover", discover_areas, database_url, cfg["areas_per_cycle"])
+    if cfg["world_sweep"]:
+        _stage(out, "world_sweep", sweep.run, database_url)
+        _stage(out, "locate_known", sweep.locate_known, database_url, _paced(database_url, sweep.LOCATE_SKU, 20))
     _stage(out, "assign_areas", lambda u: {"assigned": assign_areas(u)}, database_url)
     if cfg["find_websites"]:
-        _stage(out, "find_websites", find_websites, database_url, fetcher, n)
+        _stage(out, "find_websites", find_websites, database_url, fetcher, _paced(database_url, "text_search_enterprise", n))
     if cfg["research"]:
         _stage(out, "research", research, database_url, fetcher, n * 2)
     if cfg["find_contacts"]:
