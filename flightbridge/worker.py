@@ -27,6 +27,12 @@ log = logging.getLogger("flightbridge.worker")
 
 def build_reader(s: Settings):
     source = s.inbound_source or (secrets.settings().get("inbound_source") if s.database_url else None)
+    if source == "hiox":                # HIOX India mailbox (cPanel): IMAP over TLS on 993
+        cfg = secrets.settings()
+        password = secrets.get("hiox_mail_password")
+        if not password:
+            raise ValueError("Reading replies needs the HIOX India mailbox password: save it in FlightBridge Settings")
+        return ImapReader(cfg["hiox_mail_host"], 993, cfg["hiox_mail_user"], password)
     if source == "hostinger":
         token = s.hostinger_token or secrets.get("hostinger_mail_api_token")
         mailbox = s.hostinger_mailbox_id or secrets.get("hostinger_mailbox_resource_id")

@@ -7,9 +7,17 @@ Hostinger Mail API facts used here (hostinger-mail-api SDK v1.18.2, generated fr
   POST /api/v1/mailboxes/{id}/folders/{folder}/messages/search  body: {"body": "..."} substring match
 Live read-only probe 2026-10-31 (info@weoneaviation.com): /me, /folders, /messages return 200; message fields have no
 thread id/references; Sent folder path is 'INBOX.Sent'. send/search have NOT been exercised live.
+
+SMTP + IMAP mailbox (HIOX India cPanel mail, partnership@weoneaviation.in; server checked 2026-11-05: MX
+host2.dnsinweb.com, IMAP 993 TLS, SMTP 465 TLS, certificate valid for host2.dnsinweb.com). The message is sent over SMTP
+(465, TLS), then a copy is saved in the Sent folder over IMAP so the send can be confirmed by its Ref: token later.
 """
 from __future__ import annotations
 
+import imaplib
+import re
+import smtplib
+import ssl
 from dataclasses import dataclass
 from urllib.parse import quote
 
@@ -25,6 +33,12 @@ class DefiniteRejection(TransportError):
     definite = True
 
 
+class NotSent(TransportError):
+    """The mail server could not be reached at all (e.g. a host that blocks SMTP ports): certainly nothing was sent,
+    so the message stays authorised and another runner sends it."""
+    definite = True
+
+
 @dataclass(frozen=True)
 class SendRequest:
     to: str
@@ -33,6 +47,7 @@ class SendRequest:
     display_name: str
     reply_uid: int | None = None
     reply_folder: str | None = None
+    in_reply_to: str | None = None        # RFC Message-ID of the school's email (SMTP mailboxes)
 
 
 class HostingerMailApiTransport:
@@ -78,3 +93,90 @@ class HostingerMailApiTransport:
                          json={"body": ref_token}, params={"per_page": 5}, timeout=self._timeout)
         r.raise_for_status()
         return bool(r.json().get("data"))
+
+
+class SmtpImapTransport:
+    def __init__(self, *, host: str, user: str, password: str, capability: object, smtp_port: int = 465,
+                 imap_port: int = 993, timeout: float = 30.0):
+        from .service import _SEND_CAPABILITY
+        if capability is not _SEND_CAPABILITY:
+            raise PermissionError("transports may only be constructed by SendingService")
+        if not host or not user or not password:
+            raise ValueError("mail server, address and password are required")
+        self.host, self.user, self._password = host, user, password
+        self.smtp_port, self.imap_port, self._timeout = smtp_port, imap_port, timeout
+
+    def build(self, req: SendRequest):
+        from email.message import EmailMessage
+        from email.utils import formataddr, formatdate, make_msgid
+        m = EmailMessage()
+        m["From"] = formataddr((req.display_name, self.user))
+        m["To"] = req.to
+        m["Subject"] = req.subject
+        m["Date"] = formatdate(localtime=False)
+        m["Message-ID"] = make_msgid(domain=self.user.split("@")[-1])
+        if req.in_reply_to:
+            m["In-Reply-To"] = req.in_reply_to
+            m["References"] = req.in_reply_to
+        m.set_content(req.text)
+        return m
+
+    def send(self, req: SendRequest) -> None:
+        msg = self.build(req)
+        try:
+            smtp = smtplib.SMTP_SSL(self.host, self.smtp_port, timeout=self._timeout, context=ssl.create_default_context())
+        except (OSError, smtplib.SMTPException) as exc:          # never connected: nothing was sent
+            raise NotSent(f"connect:{type(exc).__name__}") from exc
+        try:
+            try:
+                smtp.login(self.user, self._password)
+            except smtplib.SMTPAuthenticationError as exc:
+                raise DefiniteRejection("smtp_login_refused") from exc
+            try:
+                refused = smtp.send_message(msg)
+            except (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused) as exc:
+                raise DefiniteRejection(type(exc).__name__) from exc
+            except smtplib.SMTPDataError as exc:
+                if 500 <= exc.smtp_code < 600:
+                    raise DefiniteRejection(f"smtp_{exc.smtp_code}") from exc
+                raise TransportError(f"smtp_{exc.smtp_code}") from exc
+            except (OSError, smtplib.SMTPException) as exc:     # cut off mid-send: outcome unknown
+                raise TransportError(f"network:{type(exc).__name__}") from exc
+            if refused:
+                raise DefiniteRejection("recipient_refused")
+        finally:
+            try:
+                smtp.quit()
+            except Exception:
+                pass
+        try:
+            self._save_copy(msg)          # best effort: the email has gone either way
+        except Exception:
+            pass
+
+    def _imap(self):
+        m = imaplib.IMAP4_SSL(self.host, self.imap_port, ssl_context=ssl.create_default_context(), timeout=self._timeout)
+        m.login(self.user, self._password)
+        return m
+
+    @staticmethod
+    def _sent_folder(m) -> str:
+        typ, rows = m.list()
+        for raw in rows or []:
+            line = raw.decode(errors="replace") if isinstance(raw, bytes) else str(raw)
+            if "\\Sent" in line:
+                name = re.findall(r'"([^"]+)"\s*$', line) or [line.rsplit(" ", 1)[-1]]
+                return name[0]
+        return "INBOX.Sent"           # cPanel / Dovecot default
+
+    def _save_copy(self, msg) -> None:
+        with self._imap() as m:
+            m.append(self._sent_folder(m), "\\Seen", None, msg.as_bytes())
+
+    def find_sent_by_ref(self, ref_token: str, folder: str | None = None) -> bool:
+        with self._imap() as m:
+            typ, _ = m.select(folder or self._sent_folder(m), readonly=True)
+            if typ != "OK":
+                return False
+            typ, data = m.search(None, "BODY", f'"{ref_token}"')
+            return bool(typ == "OK" and data and data[0].split())

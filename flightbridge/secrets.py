@@ -24,9 +24,13 @@ NAMES = {
     "tavily_api_key": "TAVILY_API_KEY",
     "hostinger_mail_api_token": "HOSTINGER_MAIL_API_TOKEN",
     "hostinger_mailbox_resource_id": "HOSTINGER_MAILBOX_RESOURCE_ID",
+    "hiox_mail_password": "HIOX_MAIL_PASSWORD",
 }
 DEFAULT_SETTINGS = {"engine_in_crm": True, "llm_provider": "none", "llm_model": "", "inbound_source": "none",
-                    "store_google_contacts": True}
+                    "store_google_contacts": True,
+                    # which mailbox sends: 'hostinger' (Hostinger Mail API) or 'hiox' (HIOX India mailbox, SMTP/IMAP)
+                    "send_from": "hostinger", "hiox_mail_user": "partnership@weoneaviation.in",
+                    "hiox_mail_host": "host2.dnsinweb.com"}
 _CACHE_SECONDS = 60
 _database_url: str | None = None
 _cache: dict = {}

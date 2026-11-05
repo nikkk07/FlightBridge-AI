@@ -17,7 +17,8 @@ for canon, copy in (("001_flightbridge_schema.sql", "037_flightbridge_schema.sql
                     ("006_contact_channels.sql", "049_flightbridge_contact_channels.sql"),
                     ("007_world_sweep.sql", "057_flightbridge_world_sweep.sql"),
                     ("008_register_uploads.sql", "061_flightbridge_register_uploads.sql"),
-                    ("009_verify.sql", "065_flightbridge_verify.sql")):
+                    ("009_verify.sql", "065_flightbridge_verify.sql"),
+                    ("010_hiox_mailbox.sql", "068_flightbridge_hiox_mailbox.sql")):
     h = hashlib.sha256((ROOT / "flightbridge" / "migrations" / canon).read_bytes()).hexdigest()
     text = (crm / "migrations" / copy).read_text()
     body_same = text.split("\n", 5)[5] == (ROOT / "flightbridge" / "migrations" / canon).read_text()

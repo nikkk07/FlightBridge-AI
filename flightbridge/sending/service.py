@@ -57,6 +57,7 @@ class SendingService:
         self.s, self.rules, self.profile = settings, rules, profile
         self._transport_factory = transport_factory
         self._transport = None
+        self.deferred = False
 
     # ------------------------------------------------------------ enqueue (idempotent)
     def enqueue_from_approval(self, approval_task_id: str) -> str | None:
@@ -123,13 +124,33 @@ class SendingService:
         row = conn.execute("SELECT value FROM flightbridge.system_setting WHERE key='outbound_kill_switch'").fetchone()
         return row is None or row[0] is not False   # missing or anything but JSON false => engaged
 
+    def mailbox(self) -> dict:
+        """The mailbox emails are sent from, chosen in FlightBridge AI > Settings ("Send emails from"):
+        'hostinger' (Hostinger Mail API) or 'hiox' (HIOX India mailbox over SMTP/IMAP). label = email_message.mailbox,
+        the same label the inbox reader uses, so replies thread with what was sent."""
+        from .. import secrets
+        cfg = secrets.settings(self.s.database_url) if self.s.database_url else dict(secrets.DEFAULT_SETTINGS)
+        if cfg.get("send_from") == "hiox":
+            user, host = cfg.get("hiox_mail_user"), cfg.get("hiox_mail_host")
+            return {"kind": "hiox", "user": user, "host": host, "label": f"imap:{user}@{host}"}
+        mid = self.s.hostinger_mailbox_id or secrets.get("hostinger_mailbox_resource_id", self.s.database_url)
+        return {"kind": "hostinger", "mailbox_id": mid, "label": f"hostinger:{mid}"}
+
     def _get_transport(self):
         if self._transport is None:
             if self._transport_factory is None:
-                from .transports import HostingerMailApiTransport
-                self._transport = HostingerMailApiTransport(
-                    base_url=self.s.hostinger_base_url, token=self.s.hostinger_token,
-                    mailbox_id=self.s.hostinger_mailbox_id, capability=_SEND_CAPABILITY)
+                from .. import secrets
+                from .transports import HostingerMailApiTransport, SmtpImapTransport
+                mb = self.mailbox()
+                if mb["kind"] == "hiox":
+                    self._transport = SmtpImapTransport(
+                        host=mb["host"], user=mb["user"], password=secrets.get("hiox_mail_password", self.s.database_url),
+                        capability=_SEND_CAPABILITY)
+                else:
+                    self._transport = HostingerMailApiTransport(
+                        base_url=self.s.hostinger_base_url,
+                        token=self.s.hostinger_token or secrets.get("hostinger_mail_api_token", self.s.database_url),
+                        mailbox_id=mb["mailbox_id"], capability=_SEND_CAPABILITY)
             else:
                 self._transport = self._transport_factory(capability=_SEND_CAPABILITY)
         return self._transport
@@ -186,7 +207,9 @@ class SendingService:
                      {"jurisdiction": j_decision, "content": c.decision, "reasons": all_reasons})
             if new != "authorized":
                 return ProcessOutcome(outbound_id, new, all_reasons)
+        return self._transmit(outbound_id, email, subject, body)
 
+    def _transmit(self, outbound_id: str, email: str, subject: str, body: str) -> ProcessOutcome:
         with db.tx(self.s.database_url) as conn:
             if not self.s.may_transmit or self._kill_switch_engaged(conn):
                 why = ("DRY_RUN" if self.s.dry_run else "OUTBOUND_ENABLED=false" if not self.s.outbound_enabled
@@ -201,20 +224,32 @@ class SendingService:
             if not claimed:
                 return ProcessOutcome(outbound_id, "not_claimed", ["concurrent_claim"])
 
-        from .transports import DefiniteRejection, SendRequest, TransportError
-        reply_uid = reply_folder = None
+        from .transports import DefiniteRejection, NotSent, SendRequest, TransportError
+        reply_uid = reply_folder = in_reply_to = None
+        mb = self.mailbox()
         with db.tx(self.s.database_url) as conn:
             ref = conn.execute(
-                """SELECT m.provider_uid, m.provider_folder, m.mailbox FROM flightbridge.outbound_message o
+                """SELECT m.provider_uid, m.provider_folder, m.mailbox, m.rfc_message_id FROM flightbridge.outbound_message o
                      JOIN flightbridge.email_message m ON m.id = o.reply_to_message_id WHERE o.id=%s""", (outbound_id,)).fetchone()
-        # Hostinger's inReplyTo needs a UID in THIS mailbox; mail read via IMAP elsewhere is replied to as a new message.
-        if ref and ref[2] == f"hostinger:{self.s.hostinger_mailbox_id}":
+        # Hostinger's inReplyTo needs a UID in THIS mailbox; an SMTP mailbox threads by the school's Message-ID.
+        if ref and mb["kind"] == "hostinger" and ref[2] == mb["label"]:
             reply_uid, reply_folder = ref[0], ref[1]
+        elif ref and mb["kind"] == "hiox":
+            in_reply_to = ref[3]
         try:
             self._get_transport().send(SendRequest(to=email, subject=subject, text=body,
                                                    display_name=self.s.sender_display_name,
-                                                   reply_uid=reply_uid, reply_folder=reply_folder))
+                                                   reply_uid=reply_uid, reply_folder=reply_folder, in_reply_to=in_reply_to))
             final, err = "sent", None
+        except NotSent as exc:
+            # Nothing left this runner (e.g. the CRM server's host blocks SMTP ports). Back to the start: the next
+            # runner/cycle runs every check again (suppressions may have changed) before it tries to send.
+            with db.tx(self.s.database_url) as conn:
+                conn.execute("UPDATE flightbridge.outbound_message SET status='pending_checks', authorized_at=NULL, "
+                             "last_error=%s WHERE id=%s AND status='sending'", (f"deferred:{exc}", outbound_id))
+                db.audit(conn, "outbound_deferred", "outbound_message", outbound_id, {"error": str(exc), "mailbox": mb["label"]})
+            self.deferred = True
+            return ProcessOutcome(outbound_id, "deferred", [str(exc)])
         except DefiniteRejection as exc:
             final, err = "failed", str(exc)
         except (TransportError, Exception) as exc:   # anything else: we cannot know if it went out
@@ -249,7 +284,7 @@ class SendingService:
             """INSERT INTO flightbridge.email_message (thread_id, direction, mailbox, to_addresses, subject, body_text,
                                                        fb_ref_token, occurred_at, match_method)
                VALUES (%s,'outbound',%s,%s,%s,%s,%s,%s,'outbound') ON CONFLICT DO NOTHING""",
-            (thread_id, f"hostinger:{self.s.hostinger_mailbox_id}", [email], subject, body, ref, sent_at))
+            (thread_id, self.mailbox()["label"], [email], subject, body, ref, sent_at))
         if kind == "initial":
             schedule_for_sent(conn, outbound_id, thread_id, country, sent_at)
             conn.execute("""UPDATE flightbridge.organisation SET status='contacted', updated_at=now()
@@ -273,4 +308,10 @@ class SendingService:
             ids = [str(r[0]) for r in conn.execute(
                 "SELECT id FROM flightbridge.outbound_message WHERE status='pending_checks' ORDER BY created_at LIMIT %s",
                 (limit,)).fetchall()]
-        return [self.process(i) for i in ids]
+        self.deferred = False
+        out = []
+        for i in ids:
+            if self.deferred:              # the mail server is unreachable from here: leave the rest for the next runner
+                break
+            out.append(self.process(i))
+        return out

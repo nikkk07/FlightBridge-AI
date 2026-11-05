@@ -3,6 +3,7 @@
   Groq           - GET /openai/v1/models
   Gemini         - GET /v1beta/models
   Hostinger      - GET /api/v1/me, and GET /api/v1/mailboxes/{id}/folders for the mailbox id
+  HIOX mailbox   - IMAP login (993, TLS) and SMTP login (465, TLS); nothing is sent
 Returns (ok, plain-English message). Never raises for network/API errors.
 """
 from __future__ import annotations
@@ -21,9 +22,35 @@ def _explain_google(msg: str) -> str:
     return msg[:300]
 
 
-def check(name: str, value: str, mailbox_token: str | None = None) -> tuple[bool, str]:
+def check_mailbox(host: str, user: str, password: str) -> tuple[bool, str]:
+    """Log in to IMAP and SMTP (no message is sent)."""
+    import imaplib
+    import smtplib
+    import ssl
+    try:
+        with imaplib.IMAP4_SSL(host, 993, ssl_context=ssl.create_default_context(), timeout=20) as m:
+            m.login(user, password)
+    except imaplib.IMAP4.error:
+        return False, "The mail server refused the address or password (IMAP)."
+    except OSError as exc:
+        return False, f"Could not reach {host}:993 ({type(exc).__name__})."
+    try:
+        with smtplib.SMTP_SSL(host, 465, timeout=20, context=ssl.create_default_context()) as s:
+            s.login(user, password)
+    except smtplib.SMTPAuthenticationError:
+        return False, "Replies can be read, but the server refused the login for sending (SMTP)."
+    except (OSError, smtplib.SMTPException) as exc:
+        return True, f"Connected for reading replies. Sending could not be checked from here ({type(exc).__name__}); it runs on the Mac Mini."
+    return True, f"Connected: {user} can send and read replies."
+
+
+def check(name: str, value: str, mailbox_token: str | None = None, mail: dict | None = None) -> tuple[bool, str]:
     import requests
     try:
+        if name == "hiox_mail_password":
+            mail = mail or {}
+            return check_mailbox(mail.get("hiox_mail_host") or "host2.dnsinweb.com",
+                                 mail.get("hiox_mail_user") or "partnership@weoneaviation.in", value)
         if name == "google_places_api_key":
             from .research.places import PlacesError, search
             try:
