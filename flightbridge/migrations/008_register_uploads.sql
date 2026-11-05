@@ -16,3 +16,8 @@ CREATE TABLE IF NOT EXISTS flightbridge.register_upload (
 CREATE INDEX IF NOT EXISTS idx_fb_register_upload_pending ON flightbridge.register_upload (uploaded_at) WHERE status = 'pending';
 ALTER TABLE flightbridge.register_upload DROP CONSTRAINT IF EXISTS register_upload_kind_check;
 ALTER TABLE flightbridge.register_upload ADD CONSTRAINT register_upload_kind_check CHECK (kind ~ '^[a-z0-9_]{2,40}$');
+-- Tavily web-search key can be saved like the other keys
+ALTER TABLE flightbridge.integration_secret DROP CONSTRAINT IF EXISTS integration_secret_name_check;
+ALTER TABLE flightbridge.integration_secret ADD CONSTRAINT integration_secret_name_check CHECK (name = ANY (ARRAY[
+  'google_places_api_key', 'groq_api_key', 'gemini_api_key', 'hostinger_mail_api_token', 'hostinger_mailbox_resource_id',
+  'tavily_api_key']));

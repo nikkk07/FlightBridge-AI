@@ -244,3 +244,13 @@ def test_list_upload_other_kinds():
     assert [(r.classification, r.region) for r in rows] == [("PART142_CASA", "New South Wales"), ("PART141_CASA", "Victoria")]
     with pytest.raises(list_upload.UploadError):
         list_upload.parse("nope", b"", "x.csv", None, "2026-11-05")
+
+
+def test_tavily_key_can_be_saved(clean_db, monkeypatch):
+    import psycopg
+    from flightbridge import secrets
+    monkeypatch.setenv("FB_SECRETS_KEY", "test-master")
+    with psycopg.connect(clean_db, autocommit=True) as c:
+        assert secrets.save(c, "tavily_api_key", "tvly-abcdefgh1234") == "1234"
+    secrets.configure(clean_db)
+    assert secrets.get("tavily_api_key", clean_db) == "tvly-abcdefgh1234"
