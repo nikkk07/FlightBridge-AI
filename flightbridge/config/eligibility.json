@@ -1,5 +1,5 @@
 {
- "_comment": "Per-country eligibility. verified = credential classes from official registers or a person's check. claims = what the school's own website states (a person confirms). Reviewed 2026-11-03.",
+ "_comment": "Per-country eligibility. verified = credential classes from official registers or a person's check. claims = what the school's own website states (a person confirms). Reviewed 2026-11-03. lists = which official list proves each credential (an uploaded list kind, or 'cricos' synced daily). absent_when = lists that, once all loaded, make a school absent from them Not Qualified (owner's decision 2026-11-05).",
  "US": {
   "credential": "FAA Part 141 pilot school; SEVP certification for M-1 student visas",
   "verified": [
@@ -23,6 +23,18 @@
     "SEVP school search",
     "https://studyinthestates.dhs.gov/school-search"
    ]
+  ],
+  "lists": {
+   "PART141_FAA": "faa_part141",
+   "SEVP_M1": "sevp"
+  },
+  "claim_lists": {
+   "part141": "faa_part141",
+   "sevp": "sevp"
+  },
+  "absent_when": [
+   "faa_part141",
+   "sevp"
   ]
  },
  "CA": {
@@ -48,6 +60,17 @@
     "IRCC DLI list",
     "https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit/prepare/designated-learning-institutions-list.html"
    ]
+  ],
+  "lists": {
+   "FTU_TC": "tc_ftu",
+   "DLI_CA": "ircc_dli"
+  },
+  "claim_lists": {
+   "transport_canada": "tc_ftu",
+   "dli": "ircc_dli"
+  },
+  "absent_when": [
+   "tc_ftu"
   ]
  },
  "AU": {
@@ -74,6 +97,19 @@
     "CASA flight training operators",
     "https://www.casa.gov.au/search-centre/flight-training-operators"
    ]
+  ],
+  "lists": {
+   "CRICOS_PROVIDER": "cricos",
+   "PART141_CASA": "casa_ato",
+   "PART142_CASA": "casa_ato"
+  },
+  "claim_lists": {
+   "cricos_on_site": "cricos",
+   "casa_part14x": "casa_ato"
+  },
+  "absent_when": [
+   "cricos",
+   "casa_ato"
   ]
  },
  "NZ": {

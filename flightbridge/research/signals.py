@@ -20,7 +20,9 @@ SIGNALS = {
     "easa_or_caa": r"\b(EASA|UK CAA|CAA approved|ATO)\b",
     # credential claims (what the school says about itself; a person or an official register confirms)
     "part141": r"\b(?:FAA\s*)?Part[\s-]*141\b",
-    "sevp": r"\b(SEVP|I-20|M-1\s*(?:student\s*)?visa|M1\s*visa)\b",
+    # "I-20" alone is also an interstate highway: only the student-form senses count
+    "sevp": r"\b(SEVP|SEVIS|Form\s*I-?20|I-?20\s*(?:forms?|eligib\w*|visas?|program|students?|issu\w*)|issu\w*\s+(?:an?\s+|the\s+)?"
+            r"I-?20s?|M-?1\s*(?:student\s*)?visas?|M-1\s+students?|F-1\s*(?:student\s*)?visas?)\b",
     "casa_part14x": r"\bCASA\b[^.]{0,80}\bPart\s*14[12]\b|\bPart\s*14[12]\b[^.]{0,80}\bCASA\b",
     "cricos_on_site": r"\bCRICOS\b",
     "transport_canada": r"\bTransport Canada\b[^.]{0,120}\b(?:FTU|Flight Training Unit|approved|certified)\b|\b(?:FTU|Flight Training Unit)\b[^.]{0,80}\bTransport Canada\b",

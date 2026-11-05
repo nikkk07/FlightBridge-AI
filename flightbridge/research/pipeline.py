@@ -160,7 +160,7 @@ def store_crawl(database_url: str, org_id: str, result: CrawlResult, profile: di
                 """INSERT INTO flightbridge.organisation_profile (org_id, summary, signals, evidence, generator, updated_at)
                    VALUES (%s,%s,%s,%s,%s,now()) ON CONFLICT (org_id) DO UPDATE
                    SET summary=EXCLUDED.summary, signals=EXCLUDED.signals, evidence=EXCLUDED.evidence,
-                       generator=EXCLUDED.generator, updated_at=now()""",
+                       generator=EXCLUDED.generator, updated_at=now(), ai=NULL""",
                 (org_id, profile.get("summary"), json.dumps(profile["signals"]), json.dumps(profile["evidence"]),
                  profile.get("generator", "keywords-v1")))
             stats["signals"] = sorted(k for k, v in profile["signals"].items() if v)
@@ -170,7 +170,8 @@ def store_crawl(database_url: str, org_id: str, result: CrawlResult, profile: di
     return stats
 
 
-def research_org(database_url: str, org_id: str, fetcher: SafeFetcher, max_pages: int = 14, deep: bool = False) -> dict:
+def research_org(database_url: str, org_id: str, fetcher: SafeFetcher, max_pages: int = 14, deep: bool = False,
+                 keep_texts: bool = False) -> dict:
     """Read the school's website. deep=True (contact hunt) tries the usual contact/about/privacy paths first and reads more pages."""
     from .signals import extract, summarise
     with db.tx(database_url) as conn:
@@ -185,7 +186,10 @@ def research_org(database_url: str, org_id: str, fetcher: SafeFetcher, max_pages
             result = retry
     profile = extract(result.texts)
     profile["summary"], profile["generator"] = summarise(row[1], result.texts)
-    return store_crawl(database_url, org_id, result, profile)
+    stats = store_crawl(database_url, org_id, result, profile)
+    if keep_texts:           # the Verify worker passes the page text to the AI check and the list matcher
+        stats["texts"], stats["evidence_list"] = [t for _, t in result.texts], profile.get("evidence") or []
+    return stats
 
 
 def qualify_org(database_url: str, org_id: str, extra_signals: dict | None = None) -> dict:

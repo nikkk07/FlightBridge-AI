@@ -44,6 +44,10 @@ KINDS = {
         "country": "US", "authority": "FAA", "classification": "PART141_FAA", "states": US_STATES,
         "source_url": "https://www.faa.gov/av-info/facility-dashboard",
         "keep_type": re.compile(r"141|pilot school", re.I)},
+    "sevp": {   # SEVP-certified schools (F-1/M-1): the school list covers every college; keep the aviation ones
+        "country": "US", "authority": "SEVP", "classification": "SEVP_M1", "states": US_STATES,
+        "source_url": "https://studyinthestates.dhs.gov/school-search",
+        "keep_name": AVIATION_NAME},
     "tc_ftu": {
         "country": "CA", "authority": "TC", "classification": "FTU_TC", "states": CA_PROVINCES,
         "source_url": "https://wwwapps.tc.gc.ca/Saf-Sec-Sur/2/CAS-SAC/ftaefveas.aspx?lang=eng"},

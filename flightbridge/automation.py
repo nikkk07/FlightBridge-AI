@@ -29,7 +29,7 @@ from .research.places import PlacesError, find_website
 log = logging.getLogger("flightbridge.automation")
 DEFAULT_AUTOPILOT = {"discover_areas": True, "find_websites": True, "research": True, "find_contacts": True,
                      "eligibility": True, "qualify": True, "draft": True, "batch_size": 8, "areas_per_cycle": 2,
-                     "world_sweep": True}
+                     "world_sweep": True, "verify": True}
 PARALLEL_SITES = 4          # different schools' websites are read side by side (each site still gets one request at a time)
 CONTACT_HUNT_RETRY_DAYS = 14
 OPEN_STATUSES = ("discovered", "research_pending")
@@ -186,7 +186,8 @@ def find_websites(database_url: str, fetcher: SafeFetcher, limit: int, org_id: s
         else:
             rows = conn.execute(f"""
                 SELECT * FROM (SELECT {cols}, o.discovered_at FROM flightbridge.organisation o {lateral}
-                 WHERE o.deleted_at IS NULL AND o.website_domain IS NULL AND o.status = ANY(%s)) x
+                 WHERE o.deleted_at IS NULL AND o.website_domain IS NULL AND o.status = ANY(%s)
+                   AND (o.verify_claim_until IS NULL OR o.verify_claim_until < now())) x
                  WHERE NOT (g AND t AND s)
                  ORDER BY g, t, discovered_at LIMIT %s""",
                                 (*args, list(OPEN_STATUSES), guess_limit + limit + tavily_limit + 10)).fetchall()
@@ -268,7 +269,8 @@ def research(database_url: str, fetcher: SafeFetcher, limit: int, org_id: str | 
         else:
             ids = [r[0] for r in conn.execute(
                 """SELECT id FROM flightbridge.organisation WHERE deleted_at IS NULL AND website_domain IS NOT NULL
-                   AND status = ANY(%s) ORDER BY updated_at LIMIT %s""", (list(OPEN_STATUSES), limit)).fetchall()]
+                   AND status = ANY(%s) AND (verify_claim_until IS NULL OR verify_claim_until < now())
+                   ORDER BY updated_at LIMIT %s""", (list(OPEN_STATUSES), limit)).fetchall()]
     deep = bool(org_id)                          # a person asked for this school: read it thoroughly
     for r in _each_site(lambda oid, f: pipeline.research_org(database_url, oid, f, deep=deep), ids, fetcher):
         out["researched"] += 1

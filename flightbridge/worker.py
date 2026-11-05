@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import time
 
-from . import automation, db, followups, secrets
+from . import automation, db, followups, secrets, verify
 from .ai.llm import groq_classifier
 from .compliance.rules import load_rules
 from .inbound.ingest import poll_and_process
@@ -85,6 +85,18 @@ def _run_cycle(s: Settings, reader, sender, fetcher, research: bool, trigger: st
     return out
 
 
+def verify_step(s: Settings, fetcher=None) -> dict:
+    """One step of the 24x7 Verify worker (flightbridge/verify.py), run between cycles. Honours the CRM's
+    "Run automation" switch and the Automation > verify setting. {'idle': True} means nothing is waiting."""
+    secrets.configure(s.database_url)
+    db.ensure_schema(s.database_url)
+    quota.install(s.database_url)
+    cfg = automation.autopilot(s.database_url)
+    if not cfg.get("verify", True) or not cfg.get("eligibility", True):
+        return {"idle": True, "off": True}
+    return verify.step(s.database_url, fetcher or SafeFetcher(s.crawler_user_agent))
+
+
 def loop(s: Settings, interval: int = 900, poll: int = 60) -> None:
     """Full cycle every `interval` seconds; in between, picks up "Run now" requests within `poll` seconds."""
     last = 0.0
@@ -95,6 +107,8 @@ def loop(s: Settings, interval: int = 900, poll: int = 60) -> None:
                 last = time.time()
             elif automation.queued_jobs(s.database_url):
                 log.info("run-now: %s", run_once(s, trigger="queue"))
+            elif not verify_step(s).get("idle"):
+                continue                       # more schools waiting: next step straight away
         except Exception:
             log.exception("cycle failed; retrying")
         time.sleep(max(15, poll))
