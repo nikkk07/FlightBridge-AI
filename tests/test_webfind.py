@@ -254,3 +254,10 @@ def test_tavily_key_can_be_saved(clean_db, monkeypatch):
         assert secrets.save(c, "tavily_api_key", "tvly-abcdefgh1234") == "1234"
     secrets.configure(clean_db)
     assert secrets.get("tavily_api_key", clean_db) == "tvly-abcdefgh1234"
+
+
+def test_list_upload_province_inside_town():
+    from flightbridge.research import list_upload
+    html = "<table><tr><th>Trade Name</th><th>Location</th></tr><tr><td>Moncton Flight College</td><td>Dieppe, Nb</td></tr></table>"
+    rows, _ = list_upload.parse("tc_ftu", html.encode(), "tc.html", None, "2026-11-05")
+    assert (rows[0].city, rows[0].region) == ("Dieppe", "New Brunswick")

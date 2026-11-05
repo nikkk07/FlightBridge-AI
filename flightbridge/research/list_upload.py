@@ -165,6 +165,10 @@ def parse(kind: str, data: bytes, filename: str, uploaded_by: str | None, upload
             skipped["not_matching"] += 1
             continue
         st = cell(c_state)
+        city = cell(c_city)
+        m = re.search(r",\s*([A-Za-z]{2,3})\s*$", city) if not st else None
+        if m and m.group(1).upper() in k["states"]:       # "Moncton, NB": province code at the end of the town
+            st, city = m.group(1), city[:m.start()].strip()
         region = (k["states"].get(st.upper(), st.title()) if st else None)
         ref = re.sub(r"\s+", "", cell(c_ref)) or None
         key = (ref or "", name.lower(), (region or "").lower())
@@ -176,7 +180,7 @@ def parse(kind: str, data: bytes, filename: str, uploaded_by: str | None, upload
         rows.append(RegisterRow(
             name=name, country=k["country"], authority=k["authority"], classification=cls, approval_ref=ref,
             source_url=k["source_url"], source_version=f"{filename}, uploaded {uploaded_at}",
-            website=None, city=cell(c_city).title() or None, checked_by=uploaded_by, region=region,
+            website=None, city=city.title() or None, checked_by=uploaded_by, region=region,
             from_register_file=True))
     report = {"kind": kind, "rows": len(rows), "skipped": skipped,
               "columns": {n: header[v] if v is not None else None for n, v in
