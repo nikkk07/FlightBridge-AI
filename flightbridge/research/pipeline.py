@@ -238,7 +238,7 @@ def qualify_org(database_url: str, org_id: str, extra_signals: dict | None = Non
 def draft_initial(database_url: str, org_id: str) -> str | None:
     """Create one initial-outreach draft + AMBER approval task from the owner's APPROVED 'initial' template.
     No approved template => no draft (the system never writes its own outreach text). Idempotent per contact."""
-    from ..outreach.templates import TemplateError, approved_template, org_values, render
+    from ..outreach.templates import TemplateError, approved_template, render, school_values
     with db.tx(database_url) as conn:
         org = conn.execute("SELECT name, status, city, country, eligibility FROM flightbridge.organisation WHERE id=%s",
                            (org_id,)).fetchone()
@@ -262,7 +262,7 @@ def draft_initial(database_url: str, org_id: str) -> str | None:
         if conn.execute("SELECT 1 FROM flightbridge.ai_draft WHERE contact_id=%s AND kind='initial'", (c[0],)).fetchone():
             return None
         try:
-            subject, body = render(tpl[1], tpl[2], org_values(org[0], org[2], org[3]))
+            subject, body = render(tpl[1], tpl[2], school_values(conn, org_id))
         except TemplateError as exc:
             db.audit(conn, "draft_skipped", "organisation", org_id, {"reason": str(exc)})
             return None

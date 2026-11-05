@@ -12,7 +12,7 @@ import re
 from .. import db
 from ..compliance.content import BANNED_CLAIMS
 
-ALLOWED_VARS = {"school_name", "city", "country"}
+ALLOWED_VARS = {"school_name", "city", "state", "country", "credential"}
 VAR_RE = re.compile(r"\{\{\s*([a-zA-Z_]+)\s*\}\}")
 FOOTER_MARKERS = re.compile(r"(unsubscribe|^\s*--\s*$|\bRef:\s*FB-)", re.I | re.M)
 COUNTRY_NAMES = {"US": "the United States", "GB": "the United Kingdom", "CA": "Canada", "AU": "Australia",
@@ -57,8 +57,33 @@ def render(subject: str, body: str, values: dict) -> tuple[str, str]:
     return sub(subject.strip()), sub(body.strip())
 
 
-def org_values(name: str, city: str | None, country: str) -> dict:
-    return {"school_name": name, "city": city, "country": COUNTRY_NAMES.get(country, country)}
+# {{credential}}: the school's own approval, as an official list or a person confirmed it (never a website claim)
+CREDENTIAL_TEXT = {"PART141_FAA": "FAA Part 141 certification", "SEVP_M1": "SEVP certification for international students",
+                   "FTU_TC": "Transport Canada Flight Training Unit approval", "DLI_CA": "Designated Learning Institution status",
+                   "CRICOS_PROVIDER": "CRICOS registration", "PART141_CASA": "CASA Part 141 approval",
+                   "PART142_CASA": "CASA Part 142 approval", "ATO_UK": "UK CAA Approved Training Organisation status",
+                   "PART141_NZ": "CAA NZ Part 141 certification", "NZQA_PROVIDER": "NZQA registration",
+                   "FTO_DGCA": "DGCA Flying Training Organisation approval",
+                   "NATIONAL_APPROVAL": "approval from the national aviation authority"}
+CREDENTIAL_ORDER = list(CREDENTIAL_TEXT)
+CREDENTIAL_FALLBACK = "pilot training programme"
+
+
+def org_values(name: str, city: str | None, country: str, region: str | None = None,
+               classifications: list[str] | None = None) -> dict:
+    cred = next((CREDENTIAL_TEXT[c] for c in CREDENTIAL_ORDER if c in (classifications or [])), CREDENTIAL_FALLBACK)
+    country_name = COUNTRY_NAMES.get(country, country)
+    return {"school_name": name, "city": city, "state": region or city or country_name, "country": country_name,
+            "credential": cred}
+
+
+def school_values(conn, org_id) -> dict:
+    """Placeholder values for one school, read when the draft is made (just before a person approves it)."""
+    name, city, country, region = conn.execute(
+        "SELECT name, city, country, region FROM flightbridge.organisation WHERE id=%s", (org_id,)).fetchone()
+    cls = [r[0] for r in conn.execute("""SELECT classification FROM flightbridge.regulatory_approval WHERE org_id=%s
+                                         AND status IN ('listed_in_register','verified_by_human')""", (org_id,)).fetchall()]
+    return org_values(name, city, country, region, cls)
 
 
 def save_template(database_url: str, kind: str, subject: str, body: str, created_by: str | None) -> dict:

@@ -205,3 +205,12 @@ def test_sevp_upload_keeps_aviation_schools_only():
     rows, rep = list_upload.parse("sevp", csv, "sevp.csv", None, "2026-11-05")
     assert [r.name for r in rows] == ["Sheble Aviation", "Phoenix East Aviation"]
     assert rows[0].classification == "SEVP_M1" and rows[0].region == "Oklahoma" and rep["skipped"]["not_matching"] == 1
+
+
+def test_template_placeholders_state_and_credential():
+    from flightbridge.outreach.templates import org_values, render, validate
+    v = validate("Your {{credential}} in {{state}}", "Dear {{school_name}} team, we noticed your {{credential}} in {{city}}.")
+    assert v["ok"] and v["placeholders"] == ["city", "credential", "school_name", "state"]
+    vals = org_values("Sheble Aviation", "Ardmore", "US", "Oklahoma", ["SEVP_M1", "PART141_FAA"])
+    assert render("{{credential}}", "x {{state}} {{country}} " * 3, vals)[0] == "FAA Part 141 certification"
+    assert org_values("X", None, "CA")["state"] == "Canada" and org_values("X", None, "CA")["credential"] == "pilot training programme"

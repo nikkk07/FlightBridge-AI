@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from . import db
 from .compliance.suppression import email_domain, email_hash
-from .outreach.templates import TemplateError, approved_template, org_values, render
+from .outreach.templates import TemplateError, approved_template, render, school_values
 
 COUNTRY_TZ = {"US": "America/Chicago", "CA": "America/Toronto", "GB": "Europe/London", "IE": "Europe/Dublin",
               "AU": "Australia/Sydney", "NZ": "Pacific/Auckland", "ZA": "Africa/Johannesburg", "IN": "Asia/Kolkata",
@@ -89,7 +89,7 @@ def process_due(database_url: str, now: datetime | None = None, limit: int = 50)
             if tpl is None:
                 results.append({"id": str(fid), "result": f"waiting:no_approved_followup_{step}_template"}); continue
             try:
-                subject, body = render(tpl[1], tpl[2], org_values(name, city, country))
+                subject, body = render(tpl[1], tpl[2], school_values(conn, org_id))
             except TemplateError as exc:
                 results.append({"id": str(fid), "result": f"waiting:{exc}"}); continue
             d = conn.execute(
