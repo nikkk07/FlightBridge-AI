@@ -1,7 +1,8 @@
 """Autopilot: the research half of the worker cycle, plus the run log and the "Run now" queue.
 
 Each cycle (schedule or Run-now) does, in order and within the batch size:
-  1. find websites   — Google Places candidate, confirmed on the school's own homepage (research/places.py)
+  1. find websites   — guessed address, then Tavily search, then Google Places; every hit confirmed by reading the
+                       school's own homepage (research/webfind.py, research/places.py)
   2. research        — robots-aware crawl of the school's site: public emails + website signals (+ free-LLM summary)
   3. qualify         — explainable score; never auto-rejects a regulator-approved school
   4. draft           — only from the owner's APPROVED template, always into the approval queue
@@ -149,33 +150,85 @@ def _record_website(conn, org_id, found: dict) -> None:
                         VALUES (%s,'google_place_id',%s,NULL) ON CONFLICT (scheme, value) DO NOTHING""", (org_id, found["place_id"]))
 
 
-def find_websites(database_url: str, fetcher: SafeFetcher, limit: int, org_id: str | None = None) -> dict:
-    out = {"searched": 0, "found": 0, "not_found": 0}
+GUESS_PER_CYCLE = 25          # free web-address guesses per cycle (each reads at most 4 live homepages)
+METHOD_AUDIT = {"guess": "website_guess", "tavily": "website_tavily", "google": "website_search"}
+
+
+def find_websites(database_url: str, fetcher: SafeFetcher, limit: int, org_id: str | None = None,
+                  tavily_limit: int | None = None, guess_limit: int = GUESS_PER_CYCLE) -> dict:
+    """Find each school's own website, cheapest method first:
+         1. guess the address from the name (free, unlimited)          -> audit 'website_guess'
+         2. Tavily web search (1,000 free a month, paced)              -> audit 'website_tavily'
+         3. Google Places website look-up (~900 free a month, paced)   -> audit 'website_search'
+       limit = Google look-ups allowed now; tavily_limit = Tavily searches allowed now (default: paced allowance).
+       A method is retried for a school only after WEBSITE_RETRY_DAYS. Every hit is confirmed by reading the page."""
+    from . import secrets
+    from .research import webfind
+    tkey = secrets.get("tavily_api_key", database_url)
+    if tavily_limit is None:
+        tavily_limit = _paced(database_url, webfind.SKU, max(1, limit) * 2) if tkey else 0
+    if not tkey:
+        tavily_limit = 0
+    out = {"searched": 0, "found": 0, "not_found": 0, "guessed": 0, "tavily": 0, "google": 0,
+           "found_by": {"guess": 0, "tavily": 0, "google": 0}}
+    done_sql = """EXISTS (SELECT 1 FROM flightbridge.audit_log a WHERE a.entity='organisation' AND a.entity_id=o.id::text
+                          AND a.action=%s AND a.at > now() - %s * interval '1 day')"""
+    cols = f"""o.id, o.name, o.city, o.region, o.country, ra.approval_ref,
+               {done_sql} AS g, {done_sql} AS t, {done_sql} AS s"""
+    args = ["website_guess", WEBSITE_RETRY_DAYS, "website_tavily", WEBSITE_RETRY_DAYS, "website_search", WEBSITE_RETRY_DAYS]
+    lateral = """LEFT JOIN LATERAL (SELECT approval_ref FROM flightbridge.regulatory_approval r WHERE r.org_id=o.id
+                                    ORDER BY checked_at DESC LIMIT 1) ra ON true"""
     with db.tx(database_url) as conn:
         if org_id:
-            rows = conn.execute("""SELECT o.id, o.name, o.city, o.country, ra.approval_ref FROM flightbridge.organisation o
-                LEFT JOIN flightbridge.regulatory_approval ra ON ra.org_id=o.id WHERE o.id=%s AND o.website_domain IS NULL""",
-                                (org_id,)).fetchall()
+            rows = conn.execute(f"SELECT {cols} FROM flightbridge.organisation o {lateral} WHERE o.id=%s AND o.website_domain IS NULL",
+                                (*args, org_id)).fetchall()
+            rows = [(*r[:6], False, False, False) for r in rows]          # a person asked: try every method again
         else:
-            rows = conn.execute("""
-                SELECT o.id, o.name, o.city, o.country, ra.approval_ref FROM flightbridge.organisation o
-                LEFT JOIN LATERAL (SELECT approval_ref FROM flightbridge.regulatory_approval r WHERE r.org_id=o.id
-                                   ORDER BY checked_at DESC LIMIT 1) ra ON true
-                WHERE o.deleted_at IS NULL AND o.website_domain IS NULL AND o.status = ANY(%s)
-                  AND NOT EXISTS (SELECT 1 FROM flightbridge.audit_log a WHERE a.entity='organisation' AND a.entity_id=o.id::text
-                                  AND a.action='website_search' AND a.at > now() - %s * interval '1 day')
-                ORDER BY o.discovered_at LIMIT %s""", (list(OPEN_STATUSES), WEBSITE_RETRY_DAYS, limit)).fetchall()
-    for oid, name, city, country, ref in rows:
-        res = find_website(name, city, country, ref, fetcher)     # PlacesError propagates: stop the stage, report it
+            rows = conn.execute(f"""
+                SELECT * FROM (SELECT {cols}, o.discovered_at FROM flightbridge.organisation o {lateral}
+                 WHERE o.deleted_at IS NULL AND o.website_domain IS NULL AND o.status = ANY(%s)) x
+                 WHERE NOT (g AND t AND s)
+                 ORDER BY g, t, discovered_at LIMIT %s""",
+                                (*args, list(OPEN_STATUSES), guess_limit + limit + tavily_limit + 10)).fetchall()
+    budget = {"guess": guess_limit if not org_id else 1, "tavily": tavily_limit if not org_id else min(1, tavily_limit),
+              "google": limit}
+    for oid, name, city, region, country, ref, g_done, t_done, s_done, *_ in rows:
+        if not any(budget.values()):
+            break
+        plan = [m for m, done in (("guess", g_done), ("tavily", t_done), ("google", s_done)) if not done and budget[m] > 0]
+        if not plan:
+            continue
         out["searched"] += 1
-        with db.tx(database_url) as conn:
-            if res["status"] == "found":
-                _record_website(conn, oid, res)
-                out["found"] += 1
+        res = {"status": "not_found"}
+        for method in plan:
+            budget[method] -= 1
+            out["guessed" if method == "guess" else method] += 1
+            if method == "guess":
+                res = webfind.guess(name, city, region, country, ref, fetcher)
+            elif method == "tavily":
+                try:
+                    quota.reserve(database_url, webfind.SKU)
+                    res = webfind.tavily(name, city, region, country, ref, fetcher, tkey)
+                except quota.QuotaExceeded:
+                    budget["tavily"] = 0
+                    continue
+                except Exception as exc:          # Tavily down or key refused: stop using it this cycle, keep going
+                    budget["tavily"] = 0
+                    out["tavily_error"] = str(exc)[:200]
+                    continue
             else:
-                out["not_found"] += 1
-            db.audit(conn, "website_search", "organisation", oid,
-                     {k: v for k, v in res.items() if k in ("status", "url", "domain", "matched_tokens", "approval_ref_on_site")})
+                res = find_website(name, city, country, ref, fetcher)     # PlacesError propagates: stop the stage
+                res.setdefault("method", "google")
+            with db.tx(database_url) as conn:
+                if res["status"] == "found":
+                    _record_website(conn, oid, res)
+                db.audit(conn, METHOD_AUDIT[method], "organisation", oid,
+                         {k: v for k, v in res.items() if k in ("status", "method", "url", "domain", "matched_tokens",
+                                                                 "approval_ref_on_site", "place_on_site", "tried")})
+            if res["status"] == "found":
+                out["found_by"][method] += 1
+                break
+        out["found" if res["status"] == "found" else "not_found"] += 1
     return out
 
 
@@ -333,6 +386,7 @@ def research_cycle(database_url: str, fetcher: SafeFetcher, cfg: dict | None = N
     n, out = cfg["batch_size"], {}
     _stage(out, "registers", sync_registers, database_url)
     _stage(out, "cricos", sync_cricos, database_url)
+    _stage(out, "uploads", import_uploads, database_url)
     if cfg["discover_areas"] and cfg["areas_per_cycle"]:
         _stage(out, "discover", discover_areas, database_url, cfg["areas_per_cycle"])
     if cfg["world_sweep"]:
@@ -342,9 +396,11 @@ def research_cycle(database_url: str, fetcher: SafeFetcher, cfg: dict | None = N
     if cfg["find_websites"]:
         _stage(out, "find_websites", find_websites, database_url, fetcher, _paced(database_url, "text_search_enterprise", n))
     if cfg["research"]:
-        _stage(out, "research", research, database_url, fetcher, n * 2)
+        _stage(out, "research", research, database_url, fetcher, max(n * 3, 24))
     if cfg["find_contacts"]:
         _stage(out, "find_contacts", find_contacts, database_url, fetcher, max(4, n // 2))
+    if cfg["research"]:
+        _stage(out, "recheck", recheck, database_url, fetcher, max(2, n // 2))
     if cfg["eligibility"]:
         _stage(out, "eligibility", eligibility.run, database_url, n * 4)
     if cfg["qualify"]:
@@ -366,6 +422,58 @@ def discover_areas(database_url: str, limit: int, area_id: int | None = None) ->
 
 
 CRICOS_CHECK_HOURS = 24
+
+
+def import_uploads(database_url: str) -> dict:
+    """Import official lists a person uploaded in the CRM (FAA Part 141), then clear the stored file."""
+    import base64
+    from .research import faa_upload
+    out = {"files": 0, "rows": 0, "created": 0, "matched": 0, "errors": 0}
+    with db.tx(database_url) as conn:
+        pending = conn.execute("""SELECT id, kind, filename, content_b64, uploaded_by, uploaded_at FROM flightbridge.register_upload
+                                  WHERE status='pending' ORDER BY uploaded_at LIMIT 3""").fetchall()
+    for uid, kind, filename, b64, by, at in pending:
+        try:
+            rows, report = faa_upload.parse(base64.b64decode(b64 or ""), filename, str(by) if by else None,
+                                            at.date().isoformat())
+            stats = pipeline.import_rows(database_url, rows, match_names=True)
+            result, status = {**report, **stats}, "imported"
+            out["rows"] += len(rows)
+            out["created"] += stats["created"]
+            out["matched"] += stats["matched"]
+        except Exception as exc:                  # a bad file never stops the cycle; the CRM shows the message
+            result, status = {"error": str(exc)[:300]}, "error"
+            out["errors"] += 1
+        with db.tx(database_url) as conn:
+            conn.execute("""UPDATE flightbridge.register_upload SET status=%s, result=%s, processed_at=now(), content_b64=NULL
+                            WHERE id=%s""", (status, json.dumps(result), uid))
+            db.audit(conn, "register_imported" if status == "imported" else "register_upload_failed", "register",
+                     f"upload/{uid}", result)
+        out["files"] += 1
+    return out
+
+
+RECHECK_DAYS = 90
+
+
+def recheck(database_url: str, fetcher: SafeFetcher, limit: int) -> dict:
+    """Re-verify: read again the websites of schools last read more than RECHECK_DAYS ago (oldest first).
+    The new evidence makes the eligibility stage re-categorise them; registers are re-imported on their own schedule."""
+    with db.tx(database_url) as conn:
+        ids = [r[0] for r in conn.execute("""
+            SELECT o.id FROM flightbridge.organisation o JOIN flightbridge.organisation_profile p ON p.org_id = o.id
+             WHERE o.deleted_at IS NULL AND o.website_domain IS NOT NULL AND o.status <> ALL(%s)
+               AND p.updated_at < now() - %s * interval '1 day'
+               AND NOT EXISTS (SELECT 1 FROM flightbridge.audit_log a WHERE a.entity='organisation' AND a.entity_id=o.id::text
+                               AND a.action='recheck' AND a.at > now() - interval '7 days')
+             ORDER BY p.updated_at LIMIT %s""", (list(OPEN_STATUSES), RECHECK_DAYS, limit)).fetchall()]
+    with db.tx(database_url) as conn:            # a site that is down is tried again a week later, not every cycle
+        for oid in ids:
+            db.audit(conn, "recheck", "organisation", oid, {"after_days": RECHECK_DAYS})
+    out = {"rechecked": 0}
+    for _ in _each_site(lambda oid, f: pipeline.research_org(database_url, oid, f), ids, fetcher):
+        out["rechecked"] += 1
+    return out
 
 
 def sync_cricos(database_url: str, session=None) -> dict:

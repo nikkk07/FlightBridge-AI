@@ -97,3 +97,6 @@ def _no_real_registers(monkeypatch, tmp_path):
     monkeypatch.setattr(automation, "sweep", types.SimpleNamespace(
         run=lambda *a, **k: {"skipped": "offline test"}, locate_known=lambda *a, **k: {"skipped": "offline test"},
         LOCATE_SKU="place_details_pro"))
+    # and no free web-address guessing (it does real DNS look-ups); tests/test_webfind.py drives it directly
+    from flightbridge.research import webfind
+    monkeypatch.setattr(webfind, "guess", lambda *a, **k: {"status": "not_found", "method": "guess", "tried": []})

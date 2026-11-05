@@ -37,6 +37,11 @@ def check(name: str, value: str, mailbox_token: str | None = None) -> tuple[bool
         if name == "gemini_api_key":
             r = requests.get("https://generativelanguage.googleapis.com/v1beta/models", headers={"x-goog-api-key": value}, timeout=15)
             return (True, "Connected to Gemini (free tier).") if r.ok else (False, f"Gemini refused the key (HTTP {r.status_code}).")
+        if name == "tavily_api_key":     # one basic search = 1 of the 1,000 free monthly credits
+            r = requests.post("https://api.tavily.com/search", timeout=20, headers={"Authorization": f"Bearer {value}"},
+                              json={"query": "flight school", "search_depth": "basic", "max_results": 1})
+            return (True, "Connected to Tavily (free 1,000 searches a month).") if r.ok else \
+                (False, f"Tavily refused the key (HTTP {r.status_code}).")
         if name == "hostinger_mail_api_token":
             r = requests.get(f"{HOSTINGER}/api/v1/me", timeout=15,
                              headers={"Authorization": f"Bearer {value}", "Accept": "application/json", "User-Agent": HOSTINGER_UA})

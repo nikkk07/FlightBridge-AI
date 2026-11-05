@@ -26,6 +26,7 @@ DEFAULT_CAPS = {
     "text_search_enterprise": 900,
     "place_details_pro": 4500,
     "place_details_enterprise": 900,
+    "tavily_search": 900,          # Tavily web search: 1,000 free credits a month (basic search = 1 credit)
 }
 # Text Search: Pro fields (anything beyond the place id); Enterprise adds website, phone, rating, opening hours ...
 ENTERPRISE_FIELDS = ("websiteuri", "phonenumber", "rating", "usersratingcount", "openinghours", "pricelevel", "pricerange")

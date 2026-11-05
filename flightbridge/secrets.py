@@ -21,6 +21,7 @@ NAMES = {
     "google_places_api_key": "GOOGLE_PLACES_API_KEY",
     "groq_api_key": "GROQ_API_KEY",
     "gemini_api_key": "GEMINI_API_KEY",
+    "tavily_api_key": "TAVILY_API_KEY",
     "hostinger_mail_api_token": "HOSTINGER_MAIL_API_TOKEN",
     "hostinger_mailbox_resource_id": "HOSTINGER_MAILBOX_RESOURCE_ID",
 }

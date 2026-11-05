@@ -45,6 +45,8 @@ class RegisterRow:
     region: str | None = None    # state / province / UK nation, used for grouping
     courses: tuple = ()          # approved courses as listed by the regulator
     phone: str | None = None     # phone printed in the register (regulator-published)
+    from_register_file: bool = False   # row comes from the regulator's own published list (e.g. an FAA export a person
+                                       # downloaded and uploaded), so it counts as "listed in the register"
 
     @property
     def website_domain(self) -> str | None:
@@ -55,6 +57,8 @@ class RegisterRow:
 
     @property
     def approval_status(self) -> str:
+        if self.from_register_file:
+            return "listed_in_register"
         return "verified_by_human" if self.authority in HUMAN_LOOKUP else "listed_in_register"
 
 

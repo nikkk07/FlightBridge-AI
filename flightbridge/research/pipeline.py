@@ -17,7 +17,10 @@ REVALIDATE_DAYS = {"listed_in_register": 30, "verified_by_human": 90}
 AUTO_EVIDENCE_DAYS = 90
 
 
-def import_rows(database_url: str, rows: list[RegisterRow]) -> dict:
+def import_rows(database_url: str, rows: list[RegisterRow], match_names: bool = False) -> dict:
+    """match_names: also match an existing school by name (same country, and same state when both are known).
+    Used for regulator lists that carry no website (e.g. the FAA's), so they don't duplicate schools the world
+    search already found."""
     stats = {"created": 0, "matched": 0}
     with db.tx(database_url) as conn:
         for r in rows:
@@ -31,6 +34,8 @@ def import_rows(database_url: str, rows: list[RegisterRow]) -> dict:
                 hit = conn.execute("SELECT id FROM flightbridge.organisation WHERE lower(website_domain)=%s AND deleted_at IS NULL",
                                    (r.website_domain,)).fetchone()
                 org_id = hit[0] if hit else None
+            if org_id is None and match_names:
+                org_id = match_by_name(conn, r.name, r.country, r.region)
             if org_id is None:
                 org_id = conn.execute(
                     """INSERT INTO flightbridge.organisation (name, country, region, city, website_domain, status)
@@ -66,6 +71,26 @@ def import_rows(database_url: str, rows: list[RegisterRow]) -> dict:
                 (org_id, r.authority, r.classification, r.approval_ref, json.dumps(list(r.courses)), r.approval_status, r.source_url,
                  r.source_version, now, r.checked_by, now + timedelta(days=REVALIDATE_DAYS[r.approval_status])))
     return stats
+
+
+def match_by_name(conn, name: str, country: str, region: str | None):
+    """Same school by name: equal normalised names, or one containing the other (8+ letters), same country;
+    when both sides know the state/region it must match too."""
+    from .discover import norm_name
+    n = norm_name(name)
+    if len(n) < 6:
+        return None
+    best = None
+    for oid, other, oreg in conn.execute("SELECT id, name, region FROM flightbridge.organisation WHERE country=%s AND deleted_at IS NULL",
+                                         (country,)).fetchall():
+        if region and oreg and region.strip().lower() != oreg.strip().lower():
+            continue
+        on = norm_name(other)
+        if on == n:
+            return oid
+        if best is None and len(on) >= 8 and (on in n or n in on):
+            best = oid
+    return best
 
 
 def store_phone(conn, org_id, raw: str, source: str, source_url: str | None) -> bool:
