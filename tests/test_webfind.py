@@ -148,23 +148,23 @@ FAA_CSV = ("Facility Name\tFacility Type\tCity\tState\tCertificate Number\n"
 
 
 def test_faa_upload_parse_utf16_tab_and_type_filter():
-    from flightbridge.research import faa_upload
-    rows, rep = faa_upload.parse(FAA_CSV.encode("utf-16"), "faa.csv", None, "2026-11-05")
+    from flightbridge.research import list_upload as faa_upload
+    rows, rep = faa_upload.parse("faa_part141", FAA_CSV.encode("utf-16"), "faa.csv", None, "2026-11-05")
     assert [r.name for r in rows] == ["SHEBLE AVIATION LLC", "NEW HORIZONS FLIGHT ACADEMY"]
     assert rows[0].region == "Missouri" and rows[0].city == "Joplin" and rows[0].approval_ref == "SA2S123K"
     assert rows[0].approval_status == "listed_in_register" and rows[0].classification == "PART141_FAA"
-    assert rep["skipped"] == {"not_part141": 1, "no_name": 0, "duplicate": 1}
-    assert rep["columns"]["certificate"] == "Certificate Number"
-    rows2, _ = faa_upload.parse(FAA_CSV.replace("\t", ",").encode(), "faa.csv", None, "2026-11-05")
+    assert rep["skipped"] == {"not_matching": 1, "no_name": 0, "duplicate": 1}
+    assert rep["columns"]["reference"] == "Certificate Number"
+    rows2, _ = faa_upload.parse("faa_part141", FAA_CSV.replace("\t", ",").encode(), "faa.csv", None, "2026-11-05")
     assert len(rows2) == 2
     with pytest.raises(faa_upload.UploadError):
-        faa_upload.parse(b"a,b\n1,2\n", "x.csv", None, "2026-11-05")
+        faa_upload.parse("faa_part141", b"a,b\n1,2\n", "x.csv", None, "2026-11-05")
 
 
 def test_faa_upload_parse_xlsx():
     import io
     from openpyxl import Workbook
-    from flightbridge.research import faa_upload
+    from flightbridge.research import list_upload as faa_upload
     wb = Workbook()
     ws = wb.active
     ws.append(["FAA Part 141 Pilot Schools"])
@@ -172,7 +172,7 @@ def test_faa_upload_parse_xlsx():
     ws.append(["Sheble Aviation", "Joplin", "MO", "SA2S123K"])
     buf = io.BytesIO()
     wb.save(buf)
-    rows, rep = faa_upload.parse(buf.getvalue(), "faa.xlsx", None, "2026-11-05")
+    rows, rep = faa_upload.parse("faa_part141", buf.getvalue(), "faa.xlsx", None, "2026-11-05")
     assert len(rows) == 1 and rows[0].approval_ref == "SA2S123K" and rep["columns"]["type"] is None
 
 
@@ -222,3 +222,25 @@ def test_recheck_rereads_old_profiles_once_a_week(clean_db, monkeypatch):
     assert automation.recheck(clean_db, FakeFetcher({}), 5) == {"rechecked": 1}
     assert automation.recheck(clean_db, FakeFetcher({}), 5) == {"rechecked": 0}       # site down: retried next week
     assert seen == [str(oid)]
+
+
+TC_HTML = """<html><body><h1>Flight Training Units Search</h1>
+<table><tr><th>Flight Training Unit Name</th><th>City</th><th>Province</th><th>Category</th></tr>
+<tr><td>Brampton Flight Centre</td><td>CALEDON</td><td>ON</td><td>Aeroplane</td></tr>
+<tr><td>Harv&#39;s Air Service</td><td>Steinbach</td><td>MB</td><td>Aeroplane</td></tr></table></body></html>"""
+DLI_CSV = "DLI number,Organization name,City,Province\nO19395677002,Seneca Polytechnic,Toronto,ON\nO19359011022,Moncton Flight College,Moncton,NB\n"
+
+
+def test_list_upload_other_kinds():
+    from flightbridge.research import list_upload
+    rows, rep = list_upload.parse("tc_ftu", TC_HTML.encode(), "tc.html", None, "2026-11-05")
+    assert [r.name for r in rows] == ["Brampton Flight Centre", "Harv's Air Service"]
+    assert rows[0].region == "Ontario" and rows[0].authority == "TC" and rows[0].classification == "FTU_TC"
+    rows, rep = list_upload.parse("ircc_dli", DLI_CSV.encode(), "dli.csv", None, "2026-11-05")
+    assert [r.name for r in rows] == ["Moncton Flight College"] and rows[0].approval_ref == "O19359011022"
+    assert rep["skipped"]["not_matching"] == 1 and rows[0].classification == "DLI_CA"
+    casa = "Operator name,State,Certificate type\nBasair Aviation College,NSW,Part 141 and Part 142\nSmall Aero Club,VIC,Part 141\n"
+    rows, _ = list_upload.parse("casa_ato", casa.encode(), "casa.csv", None, "2026-11-05")
+    assert [(r.classification, r.region) for r in rows] == [("PART142_CASA", "New South Wales"), ("PART141_CASA", "Victoria")]
+    with pytest.raises(list_upload.UploadError):
+        list_upload.parse("nope", b"", "x.csv", None, "2026-11-05")

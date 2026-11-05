@@ -425,17 +425,17 @@ CRICOS_CHECK_HOURS = 24
 
 
 def import_uploads(database_url: str) -> dict:
-    """Import official lists a person uploaded in the CRM (FAA Part 141), then clear the stored file."""
+    """Import official school lists a person uploaded in the CRM (list_upload.KINDS), then clear the stored file."""
     import base64
-    from .research import faa_upload
+    from .research import list_upload
     out = {"files": 0, "rows": 0, "created": 0, "matched": 0, "errors": 0}
     with db.tx(database_url) as conn:
         pending = conn.execute("""SELECT id, kind, filename, content_b64, uploaded_by, uploaded_at FROM flightbridge.register_upload
                                   WHERE status='pending' ORDER BY uploaded_at LIMIT 3""").fetchall()
     for uid, kind, filename, b64, by, at in pending:
         try:
-            rows, report = faa_upload.parse(base64.b64decode(b64 or ""), filename, str(by) if by else None,
-                                            at.date().isoformat())
+            rows, report = list_upload.parse(kind, base64.b64decode(b64 or ""), filename, str(by) if by else None,
+                                             at.date().isoformat())
             stats = pipeline.import_rows(database_url, rows, match_names=True)
             result, status = {**report, **stats}, "imported"
             out["rows"] += len(rows)
