@@ -48,6 +48,8 @@ class SendRequest:
     reply_uid: int | None = None
     reply_folder: str | None = None
     in_reply_to: str | None = None        # RFC Message-ID of the school's email (SMTP mailboxes)
+    references: tuple = ()                # earlier Message-IDs in the conversation (follow-ups thread under the first email)
+    unsubscribe_url: str | None = None    # one-click unsubscribe (RFC 8058) - SMTP mailboxes only
 
 
 class HostingerMailApiTransport:
@@ -117,11 +119,19 @@ class SmtpImapTransport:
         m["Message-ID"] = make_msgid(domain=self.user.split("@")[-1])
         if req.in_reply_to:
             m["In-Reply-To"] = req.in_reply_to
-            m["References"] = req.in_reply_to
+            m["References"] = " ".join(dict.fromkeys([*req.references, req.in_reply_to]))
+        # Unsubscribe header: mail apps show their own "Unsubscribe" button, which is far better for the sender's
+        # reputation than a "Report spam" click. mailto: always works (a reply is read by the inbox reader).
+        unsub = [f"<mailto:{self.user}?subject=unsubscribe>"]
+        if req.unsubscribe_url:
+            unsub.insert(0, f"<{req.unsubscribe_url}>")
+            m["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+        m["List-Unsubscribe"] = ", ".join(unsub)
         m.set_content(req.text)
         return m
 
-    def send(self, req: SendRequest) -> None:
+    def send(self, req: SendRequest) -> str:
+        """-> the Message-ID it went out with (stored, so follow-ups and replies thread with it)."""
         msg = self.build(req)
         try:
             smtp = smtplib.SMTP_SSL(self.host, self.smtp_port, timeout=self._timeout, context=ssl.create_default_context())
@@ -153,6 +163,7 @@ class SmtpImapTransport:
             self._save_copy(msg)          # best effort: the email has gone either way
         except Exception:
             pass
+        return msg["Message-ID"]
 
     def _imap(self):
         m = imaplib.IMAP4_SSL(self.host, self.imap_port, ssl_context=ssl.create_default_context(), timeout=self._timeout)

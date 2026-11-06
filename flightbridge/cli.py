@@ -37,7 +37,7 @@ def main(argv=None) -> int:
     sub.add_parser("status")
     ro = sub.add_parser("run-once"); ro.add_argument("--trigger", choices=["schedule", "manual", "queue"], default="manual")
     w = sub.add_parser("worker"); w.add_argument("--interval", type=int, default=900); w.add_argument("--poll", type=int, default=60)
-    tp = sub.add_parser("template"); tp.add_argument("kind", choices=["initial", "followup_1", "followup_2", "followup_3"])
+    tp = sub.add_parser("template"); tp.add_argument("kind", choices=["initial", "followup_1", "followup_2", "followup_3", "followup_4", "followup_5"])
     tp.add_argument("--subject", required=True); tp.add_argument("--body-file", required=True)
     a = p.parse_args(argv)
 

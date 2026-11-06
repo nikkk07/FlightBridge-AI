@@ -16,22 +16,7 @@ from . import db
 from .compliance.suppression import email_domain, email_hash
 from .outreach.templates import TemplateError, approved_template, render, school_values
 
-COUNTRY_TZ = {"US": "America/Chicago", "CA": "America/Toronto", "GB": "Europe/London", "IE": "Europe/Dublin",
-              "AU": "Australia/Sydney", "NZ": "Pacific/Auckland", "ZA": "Africa/Johannesburg", "IN": "Asia/Kolkata",
-              "DE": "Europe/Berlin", "FR": "Europe/Paris", "ES": "Europe/Madrid", "IT": "Europe/Rome",
-              "NL": "Europe/Amsterdam", "PL": "Europe/Warsaw", "PT": "Europe/Lisbon", "SE": "Europe/Stockholm"}
-
-
-def business_time(base: datetime, days: int, country: str, start_h: int = 9, end_h: int = 17) -> datetime:
-    tz = ZoneInfo(COUNTRY_TZ.get(country, "UTC"))
-    local = (base + timedelta(days=days)).astimezone(tz)
-    if local.hour < start_h:
-        local = local.replace(hour=start_h, minute=0, second=0, microsecond=0)
-    elif local.hour >= end_h:
-        local = (local + timedelta(days=1)).replace(hour=start_h, minute=0, second=0, microsecond=0)
-    while local.weekday() >= 5:            # Sat/Sun -> Monday
-        local = (local + timedelta(days=1)).replace(hour=start_h, minute=0, second=0, microsecond=0)
-    return local.astimezone(timezone.utc)
+from .localtime import COUNTRY_TZ, business_time  # noqa: F401  (re-exported for older callers)
 
 
 def _setting(conn, key, default):
@@ -42,9 +27,12 @@ def _setting(conn, key, default):
 def schedule_for_sent(conn, outbound_id: str, thread_id, country: str, sent_at: datetime) -> int:
     days = _setting(conn, "followup_schedule_days", [4, 9, 16])
     hours = _setting(conn, "followup_business_hours", {"start": 9, "end": 17})
+    region = conn.execute("SELECT g.region FROM flightbridge.email_thread t JOIN flightbridge.organisation g ON g.id=t.org_id "
+                          "WHERE t.id=%s", (thread_id,)).fetchone()
+    region = region[0] if region else None
     n = 0
-    for step, d in enumerate(days[:3], start=1):
-        due = business_time(sent_at, int(d), country, int(hours["start"]), int(hours["end"]))
+    for step, d in enumerate(days[:5], start=1):
+        due = business_time(sent_at, int(d), country, int(hours["start"]), int(hours["end"]), region=region)
         n += conn.execute("""INSERT INTO flightbridge.follow_up_task (thread_id, step, due_at, outbound_id)
                              VALUES (%s,%s,%s,%s) ON CONFLICT (thread_id, step) DO NOTHING""",
                           (thread_id, step, due, outbound_id)).rowcount

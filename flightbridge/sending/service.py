@@ -231,15 +231,26 @@ class SendingService:
             ref = conn.execute(
                 """SELECT m.provider_uid, m.provider_folder, m.mailbox, m.rfc_message_id FROM flightbridge.outbound_message o
                      JOIN flightbridge.email_message m ON m.id = o.reply_to_message_id WHERE o.id=%s""", (outbound_id,)).fetchone()
+            o_kind, o_thread, o_ref = conn.execute(
+                "SELECT kind, thread_id, ref_token FROM flightbridge.outbound_message WHERE id=%s", (outbound_id,)).fetchone()
+            earlier = [r[0] for r in conn.execute(
+                """SELECT rfc_message_id FROM flightbridge.email_message WHERE thread_id=%s AND direction='outbound'
+                     AND rfc_message_id IS NOT NULL ORDER BY occurred_at""", (o_thread,)).fetchall()] if o_thread else []
+            base = conn.execute("SELECT value #>> '{}' FROM flightbridge.system_setting WHERE key='unsubscribe_url_base'").fetchone()
+        unsubscribe_url = f"{base[0].rstrip('/')}/{o_ref}" if base and base[0] else None
+        references: tuple = ()
         # Hostinger's inReplyTo needs a UID in THIS mailbox; an SMTP mailbox threads by the school's Message-ID.
         if ref and mb["kind"] == "hostinger" and ref[2] == mb["label"]:
             reply_uid, reply_folder = ref[0], ref[1]
         elif ref and mb["kind"] == "hiox":
             in_reply_to = ref[3]
+        elif o_kind == "followup" and earlier and mb["kind"] == "hiox":
+            in_reply_to, references = earlier[-1], tuple(earlier)      # follow-ups sit under the first email
         try:
-            self._get_transport().send(SendRequest(to=email, subject=subject, text=body,
-                                                   display_name=self.s.sender_display_name,
-                                                   reply_uid=reply_uid, reply_folder=reply_folder, in_reply_to=in_reply_to))
+            message_id = self._get_transport().send(SendRequest(
+                to=email, subject=subject, text=body, display_name=self.s.sender_display_name,
+                reply_uid=reply_uid, reply_folder=reply_folder, in_reply_to=in_reply_to, references=references,
+                unsubscribe_url=unsubscribe_url))
             final, err = "sent", None
         except NotSent as exc:
             # Nothing left this runner (e.g. the CRM server's host blocks SMTP ports). Back to the start: the next
@@ -251,9 +262,9 @@ class SendingService:
             self.deferred = True
             return ProcessOutcome(outbound_id, "deferred", [str(exc)])
         except DefiniteRejection as exc:
-            final, err = "failed", str(exc)
+            final, err, message_id = "failed", str(exc), None
         except (TransportError, Exception) as exc:   # anything else: we cannot know if it went out
-            final, err = "send_unknown", f"{type(exc).__name__}:{exc}"
+            final, err, message_id = "send_unknown", f"{type(exc).__name__}:{exc}", None
         with db.tx(self.s.database_url) as conn:
             conn.execute(
                 "UPDATE flightbridge.outbound_message SET status=%s, last_error=%s, "
@@ -261,10 +272,10 @@ class SendingService:
                 (final, err, final, outbound_id))
             db.audit(conn, f"outbound_{final}", "outbound_message", outbound_id, {"error": err})
             if final == "sent":
-                self._record_sent(conn, outbound_id)
+                self._record_sent(conn, outbound_id, message_id if isinstance(message_id, str) else None)
         return ProcessOutcome(outbound_id, final, [err] if err else [])
 
-    def _record_sent(self, conn, outbound_id: str) -> None:
+    def _record_sent(self, conn, outbound_id: str, message_id: str | None = None) -> None:
         """Same transaction as the 'sent' update: thread + outbound message record, follow-up schedule, statuses."""
         from ..followups import schedule_for_sent
         o = conn.execute(
@@ -282,9 +293,9 @@ class SendingService:
             conn.execute("UPDATE flightbridge.email_thread SET status='awaiting_reply', updated_at=now() WHERE id=%s", (thread_id,))
         conn.execute(
             """INSERT INTO flightbridge.email_message (thread_id, direction, mailbox, to_addresses, subject, body_text,
-                                                       fb_ref_token, occurred_at, match_method)
-               VALUES (%s,'outbound',%s,%s,%s,%s,%s,%s,'outbound') ON CONFLICT DO NOTHING""",
-            (thread_id, self.mailbox()["label"], [email], subject, body, ref, sent_at))
+                                                       fb_ref_token, occurred_at, match_method, rfc_message_id)
+               VALUES (%s,'outbound',%s,%s,%s,%s,%s,%s,'outbound',%s) ON CONFLICT DO NOTHING""",
+            (thread_id, self.mailbox()["label"], [email], subject, body, ref, sent_at, message_id))
         if kind == "initial":
             schedule_for_sent(conn, outbound_id, thread_id, country, sent_at)
             conn.execute("""UPDATE flightbridge.organisation SET status='contacted', updated_at=now()

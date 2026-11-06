@@ -103,6 +103,15 @@ def verify_step(s: Settings, fetcher=None) -> dict:
     return verify.step(s.database_url, fetcher or SafeFetcher(s.crawler_user_agent))
 
 
+def autosend_step(s: Settings, sender: SendingService | None = None, dns=None) -> dict:
+    """One step of Email Auto-Pilot (flightbridge/autosend.py): at most one email, when everything allows it.
+    Run it from the computer that can reach the mail server (the Mac Mini); it is a no-op while Auto-Pilot is off."""
+    from . import autosend
+    secrets.configure(s.database_url)
+    db.ensure_schema(s.database_url)
+    return autosend.step(s, sender=sender, dns=dns)
+
+
 def loop(s: Settings, interval: int = 900, poll: int = 60) -> None:
     """Full cycle every `interval` seconds; in between, picks up "Run now" requests within `poll` seconds."""
     last = 0.0
