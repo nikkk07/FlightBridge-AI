@@ -10,6 +10,7 @@ Every step is idempotent, so an interrupted cycle simply resumes on the next run
 from __future__ import annotations
 
 import logging
+import json
 import time
 
 from . import automation, db, followups, secrets, verify
@@ -110,6 +111,60 @@ def autosend_step(s: Settings, sender: SendingService | None = None, dns=None) -
     secrets.configure(s.database_url)
     db.ensure_schema(s.database_url)
     return autosend.step(s, sender=sender, dns=dns)
+
+
+MAC_FRESH = 180          # seconds: the Mac reported this recently, so it is the one sending
+
+
+def cloud_send(s: Settings, minutes: float = 9.0, every: int = 30, clock=time.monotonic, sleep=time.sleep,
+               sender: SendingService | None = None, reader=None, dns=None) -> dict:
+    """Email Auto-Pilot from the cloud (GitHub Actions), for when the Mac Mini is off.
+    Does nothing while the Mac reports in (it sends then). Otherwise: reads replies and makes due follow-ups first
+    (so a school that answered never gets a follow-up), then takes an Auto-Pilot step every `every` seconds for
+    `minutes`. The same claim, gates, kill switch and pace apply, so the Mac and the cloud can never double-send.
+    Returns only counts and state names (the run log of a public repository is public)."""
+    from datetime import datetime, timezone
+    from . import autosend
+    secrets.configure(s.database_url)
+    db.ensure_schema(s.database_url)
+    with db.tx(s.database_url) as conn:
+        row = conn.execute("SELECT value FROM flightbridge.system_setting WHERE key='engine_status'").fetchone()
+        enabled = autosend.config(conn)["enabled"]
+    env = (row[0] if row else None) or {}
+    try:
+        mac_at = datetime.fromisoformat(env["at"]) if env.get("at") else None
+    except ValueError:
+        mac_at = None
+    now = datetime.now(timezone.utc)
+
+    def beat(state: str, **kw) -> dict:
+        with db.tx(s.database_url) as conn:
+            conn.execute("""INSERT INTO flightbridge.system_setting (key, value, updated_at) VALUES ('cloud_sender', %s::jsonb, now())
+                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()""",
+                         (json.dumps({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "state": state,
+                                      "may_send": s.may_transmit, **kw}),))
+        return {"state": state, **kw}
+
+    if mac_at and (now - mac_at).total_seconds() < MAC_FRESH and env.get("runner") != "github-actions":
+        return beat("mac_online")
+    if not enabled:
+        return beat("autopilot_off")
+    try:
+        first = run_once(s, reader=reader, sender=sender, research=False, trigger="schedule")
+    except Exception as exc:                   # reported by type only; the step loop below still honours every gate
+        first = {"error": type(exc).__name__}
+    states: dict[str, int] = {"cycle_skipped": 1} if first.get("skipped") else {}   # autosend has its own claim
+    end = clock() + minutes * 60
+    while True:
+        try:
+            st = autosend_step(s, sender=sender, dns=dns).get("state", "?")
+        except Exception as exc:               # keep going; report the type only
+            st = f"error:{type(exc).__name__}"
+        states[st] = states.get(st, 0) + 1
+        if st in ("paused", "off", "blocked") or clock() + every > end:
+            break
+        sleep(every)
+    return beat("ran", steps=states, sent=states.get("sent", 0))
 
 
 def loop(s: Settings, interval: int = 900, poll: int = 60) -> None:

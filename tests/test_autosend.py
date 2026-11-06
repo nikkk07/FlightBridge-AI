@@ -329,3 +329,45 @@ def test_gate_block_after_precheck_pauses_with_reason(ap):
     assert st["paused_at"] and "Nothing was sent" in st["pause_reason"]
     assert autosend.step(settings(ap["url"]), sender=svc, dns=FakeDNS(), now=WED_10AM_TEXAS,
                          rng=random.Random(1))["state"] == "paused"
+
+
+def _mac(url, seconds_ago):
+    from datetime import timedelta
+    at = (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat()
+    with psycopg.connect(url, autocommit=True) as c:
+        c.execute("""INSERT INTO flightbridge.system_setting (key, value) VALUES ('engine_status', %s::jsonb)
+                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value""", (json.dumps({"at": at, "runner": "mac-mini"}),))
+
+
+def _cloud(url, monkeypatch, minutes=0.0):
+    from flightbridge import worker
+    monkeypatch.setattr(worker.db, "ensure_schema", lambda url: "current")      # the test schema is already in place
+    monkeypatch.setattr(worker.quota, "install", lambda url: None)
+    monkeypatch.setattr(worker, "autosend_step", lambda s, sender=None, dns=None: autosend.step(
+        s, sender=sender, dns=FakeDNS(), now=WED_10AM_TEXAS, rng=random.Random(1)))
+    t = iter(range(0, 10_000, 30))
+    return worker.cloud_send(settings(url), minutes=minutes, every=30, clock=lambda: next(t), sleep=lambda _: None,
+                             sender=sender(url), reader=None)
+
+
+def test_cloud_does_nothing_while_the_mac_is_online(ap, monkeypatch):
+    school(ap["url"])
+    _mac(ap["url"], 20)
+    assert _cloud(ap["url"], monkeypatch)["state"] == "mac_online" and not FakeTransport.calls
+    assert q(ap["url"], "SELECT value->>'state' FROM flightbridge.system_setting WHERE key='cloud_sender'") == [("mac_online",)]
+
+
+def test_cloud_sends_when_the_mac_is_off(ap, monkeypatch):
+    school(ap["url"])
+    school(ap["url"], "Gulf Coast Flight", "ops@gulf.example")
+    _mac(ap["url"], 3600)
+    out = _cloud(ap["url"], monkeypatch, minutes=1.0)
+    assert out["state"] == "ran" and out["sent"] == 1 and len(FakeTransport.calls) == 1   # then the gap holds it
+    assert out["steps"].get("gap", 0) >= 1
+
+
+def test_cloud_respects_autopilot_off(ap, monkeypatch):
+    school(ap["url"])
+    with psycopg.connect(ap["url"], autocommit=True) as c:
+        c.execute("UPDATE flightbridge.system_setting SET value = value || '{\"enabled\": false}' WHERE key='send_autopilot'")
+    assert _cloud(ap["url"], monkeypatch)["state"] == "autopilot_off" and not FakeTransport.calls

@@ -36,6 +36,7 @@ def main(argv=None) -> int:
     pr = sub.add_parser("process"); pr.add_argument("--limit", type=int, default=20)
     sub.add_parser("status")
     ro = sub.add_parser("run-once"); ro.add_argument("--trigger", choices=["schedule", "manual", "queue"], default="manual")
+    cs = sub.add_parser("cloud-send"); cs.add_argument("--minutes", type=float, default=9.0)
     w = sub.add_parser("worker"); w.add_argument("--interval", type=int, default=900); w.add_argument("--poll", type=int, default=60)
     tp = sub.add_parser("template"); tp.add_argument("kind", choices=["initial", "followup_1", "followup_2", "followup_3", "followup_4", "followup_5"])
     tp.add_argument("--subject", required=True); tp.add_argument("--body-file", required=True)
@@ -65,6 +66,11 @@ def main(argv=None) -> int:
     elif a.cmd == "run-once":
         from .worker import run_once
         out = run_once(s, trigger=a.trigger)
+    elif a.cmd == "cloud-send":
+        import logging
+        from .worker import cloud_send
+        logging.basicConfig(level=logging.CRITICAL)      # public run log: no addresses or school names
+        out = cloud_send(s, minutes=a.minutes)
     elif a.cmd == "worker":
         import logging
         from .worker import loop
