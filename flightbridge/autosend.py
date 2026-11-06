@@ -125,7 +125,7 @@ def _candidates(conn, limit: int = 300) -> list[tuple]:
     """Emails waiting for approval that Auto-Pilot may approve: first emails (Eligible schools) and follow-ups,
     made from an owner's template, to a contact that hasn't bounced. Follow-ups first (they are time-bound)."""
     return conn.execute(
-        """SELECT a.id, d.kind, g.country, g.region, g.id, f.step
+        """SELECT a.id, d.kind, g.country, g.region, g.id, f.step, c.email, c.is_role_address, c.id
              FROM flightbridge.approval_task a
              JOIN flightbridge.ai_draft d ON d.id = a.draft_id
              JOIN flightbridge.organisation g ON g.id = d.org_id
@@ -257,6 +257,28 @@ def step(settings, sender=None, dns=None, now: datetime | None = None, rng: rand
     cands = [c for c in cands if ("initial" if c[1] == "initial" else f"followup_{c[5]}") in kinds]
     if not cands:
         return report("idle", detail="Emails are waiting, but their template isn't approved")
+
+    # only emails the law gate would let through; the rest (e.g. UK/EU named people, Canada, Australia) stay in the
+    # Approval queue for a person, instead of being approved and then blocked one by one
+    if sender is None:
+        from .compliance.rules import load_rules
+        from .sending.service import SendingService
+        from .settings import load_sender_profile
+        sender = SendingService(settings, load_rules(), load_sender_profile())
+    held: dict[str, int] = {}
+    with db.tx(url) as conn:
+        allowed = []
+        for c in cands:
+            j = sender.legal_precheck(conn, c[6], bool(c[7]), c[2], c[8], c[4])
+            if j.decision == "ALLOW":
+                allowed.append(c)
+            else:
+                held[c[2] or "?"] = held.get(c[2] or "?", 0) + 1
+    cands = allowed
+    if not cands:
+        where = ", ".join(f"{n} {k}" for k, n in sorted(held.items(), key=lambda x: -x[1]))
+        return report("idle", detail=f"Waiting emails all need a person's legal check first ({where}); see the Approval queue",
+                      held=held)
     lo, hi = cfg["hours"]
     pick = next((c for c in cands if in_business_hours(now, c[2], c[3], lo, hi)), None)
     if pick is None:
@@ -275,11 +297,6 @@ def step(settings, sender=None, dns=None, now: datetime | None = None, rng: rand
             save_state(conn, {"next_send_at": now.isoformat()})
         return report("skipped", detail="That email's template is no longer approved")
 
-    if sender is None:
-        from .compliance.rules import load_rules
-        from .sending.service import SendingService
-        from .settings import load_sender_profile
-        sender = SendingService(settings, load_rules(), load_sender_profile())
     oid = sender.enqueue_from_approval(str(pick[0]))
     res = sender.process(oid) if oid else None
     status = res.status if res else "missing"
@@ -295,7 +312,12 @@ def step(settings, sender=None, dns=None, now: datetime | None = None, rng: rand
             why = f"The mailbox refused or couldn't confirm an email ({'; '.join(res.reasons) if res else status}). Check the mailbox, then resume."
             patch.update({"paused_at": now.isoformat(), "pause_reason": why})
             db.audit(conn, "autopilot_paused", "system_setting", "send_autopilot", {"reason": why})
-        else:                                          # blocked / needs review by the gates: nothing went out
+        elif status in ("blocked", "needs_review"):    # passed the pre-check, then a gate stopped it: stop and say why
+            why = (f"A safety check stopped an email ({'; '.join(res.reasons[:3]) if res else status}). "
+                   "Nothing was sent. Fix the cause (often the email wording), then resume.")
+            patch.update({"paused_at": now.isoformat(), "pause_reason": why})
+            db.audit(conn, "autopilot_paused", "system_setting", "send_autopilot", {"reason": why})
+        else:                                          # nothing went out (dry run, missing): try the next one
             patch["next_send_at"] = now.isoformat()
         save_state(conn, patch)
     return report("sent" if status == "sent" else status, outbound_id=oid, kind=pick[1],

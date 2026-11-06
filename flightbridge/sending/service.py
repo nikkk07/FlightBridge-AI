@@ -113,6 +113,13 @@ class SendingService:
             (contact_id,)).fetchall()
         return [Evidence(*r) for r in rows]
 
+    def legal_precheck(self, conn, email: str, is_role: bool, country: str, contact_id, org_id):
+        """Gate 1 only, read-only: the jurisdiction decision this recipient would get right now (ALLOW / HUMAN_REVIEW /
+        BLOCK). Auto-Pilot uses it to take only emails the law gate would let through, and to leave the rest for a person."""
+        ctx = RecipientContext(email=email, country=country, is_role_address=is_role, org_id=str(org_id),
+                               evidence=self._evidence_for(conn, contact_id))
+        return jurisdiction_gate.evaluate(ctx, self.rules, self._suppression_for(conn, email, org_id))
+
     def _record_check(self, conn, outbound_id, kind, decision, rule_key, reasons, sha=None) -> int:
         return conn.execute(
             """INSERT INTO flightbridge.compliance_check

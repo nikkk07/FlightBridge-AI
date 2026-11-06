@@ -296,3 +296,36 @@ def test_school_clock():
     assert in_business_hours(WED_10AM_TEXAS, "US", "TX") and not in_business_hours(WED_10AM_TEXAS, "US", "CA")
     sat = datetime(2026, 11, 7, 12, 0, tzinfo=timezone.utc)
     assert business_time(sat, 0, "GB").weekday() == 0
+
+
+def test_schools_needing_a_legal_check_are_left_for_a_person(ap):
+    """UK needs human-verified facts: Auto-Pilot must not approve it (and then get it blocked); it waits in the queue."""
+    school(ap["url"], "Airspace FTS", "info@airspace.example", region=None, country="GB")
+    out = run(ap["url"])
+    assert out["state"] == "idle" and out["held"] == {"GB": 1} and "legal check" in out["detail"]
+    assert q(ap["url"], "SELECT status FROM flightbridge.approval_task") == [("open",)]
+    assert q(ap["url"], "SELECT count(*) FROM flightbridge.outbound_message")[0][0] == 0 and not FakeTransport.calls
+
+
+def test_us_school_sent_while_uk_school_waits(ap):
+    school(ap["url"], "Airspace FTS", "info@airspace.example", region=None, country="GB")   # older, would be first
+    school(ap["url"])
+    out = run(ap["url"])
+    assert out["state"] == "sent" and FakeTransport.calls[0].subject.endswith("Lone Star Aviation")
+    rows = q(ap["url"], """SELECT g.country, a.status FROM flightbridge.approval_task a JOIN flightbridge.ai_draft d ON d.id=a.draft_id
+                           JOIN flightbridge.organisation g ON g.id=d.org_id ORDER BY 1""")
+    assert rows == [("GB", "open"), ("US", "approved")]
+
+
+def test_gate_block_after_precheck_pauses_with_reason(ap):
+    import dataclasses
+    school(ap["url"])
+    bad = dataclasses.replace(FULL_PROFILE, ad_disclosure_text=None)          # US content rule can't pass
+    svc = SendingService(settings(ap["url"]), __import__("flightbridge.compliance.rules", fromlist=["x"]).load_rules(),
+                         bad, FakeTransport)
+    out = autosend.step(settings(ap["url"]), sender=svc, dns=FakeDNS(), now=WED_10AM_TEXAS, rng=random.Random(1))
+    assert out["state"] == "blocked" and not FakeTransport.calls
+    st = q(ap["url"], "SELECT value FROM flightbridge.system_setting WHERE key='send_autopilot_state'")[0][0]
+    assert st["paused_at"] and "Nothing was sent" in st["pause_reason"]
+    assert autosend.step(settings(ap["url"]), sender=svc, dns=FakeDNS(), now=WED_10AM_TEXAS,
+                         rng=random.Random(1))["state"] == "paused"
