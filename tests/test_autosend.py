@@ -371,3 +371,12 @@ def test_cloud_respects_autopilot_off(ap, monkeypatch):
     with psycopg.connect(ap["url"], autocommit=True) as c:
         c.execute("UPDATE flightbridge.system_setting SET value = value || '{\"enabled\": false}' WHERE key='send_autopilot'")
     assert _cloud(ap["url"], monkeypatch)["state"] == "autopilot_off" and not FakeTransport.calls
+
+
+def test_us_state_full_names_map_to_their_own_time_zone():
+    from flightbridge.localtime import school_tz
+    assert str(school_tz("US", "Virginia")) == "America/New_York"
+    assert str(school_tz("US", "Utah")) == "America/Denver"
+    assert str(school_tz("US", "Alaska")) == "America/Anchorage"
+    assert str(school_tz("US", "Georgia")) == "America/New_York"
+    assert str(school_tz("US", "Oklahoma")) == "America/Chicago"

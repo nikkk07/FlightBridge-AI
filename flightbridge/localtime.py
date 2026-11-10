@@ -49,7 +49,19 @@ _NAMES = {"new south wales": "NSW", "victoria": "VIC", "queensland": "QLD", "wes
           "south australia": "SA", "tasmania": "TAS", "northern territory": "NT", "australian capital territory": "ACT",
           "british columbia": "BC", "alberta": "AB", "ontario": "ON", "quebec": "QC", "manitoba": "MB",
           "saskatchewan": "SK", "nova scotia": "NS", "new brunswick": "NB", "california": "CA", "florida": "FL",
-          "texas": "TX", "arizona": "AZ", "washington": "WA", "oregon": "OR", "new york": "NY", "colorado": "CO"}
+          "texas": "TX", "arizona": "AZ", "washington": "WA", "oregon": "OR", "new york": "NY", "colorado": "CO",
+          "newfoundland and labrador": "NL", "prince edward island": "PE", "yukon": "YT", "northwest territories": "NT",
+          "nunavut": "NU",
+          # every US state (full name -> code); before 1.8.4 most fell back to Central time
+          "alabama": "AL", "alaska": "AK", "arkansas": "AR", "connecticut": "CT", "delaware": "DE",
+          "district of columbia": "DC", "washington dc": "DC", "washington, d.c.": "DC", "georgia": "GA", "hawaii": "HI",
+          "idaho": "ID", "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY",
+          "louisiana": "LA", "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI", "minnesota": "MN",
+          "mississippi": "MS", "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+          "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "north carolina": "NC", "north dakota": "ND",
+          "ohio": "OH", "oklahoma": "OK", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+          "south dakota": "SD", "tennessee": "TN", "utah": "UT", "vermont": "VT", "virginia": "VA",
+          "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY", "puerto rico": "PR"}
 
 
 def school_tz(country: str | None, region: str | None = None) -> ZoneInfo | None:
