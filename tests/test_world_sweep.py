@@ -148,6 +148,16 @@ def test_google_refusal_is_not_counted_pauses_and_resumes_by_itself(sdb, monkeyp
     assert quota.pause_state(sdb) is None and quota.used(sdb) == {"text_search_pro": 1}
 
 
+def test_test_button_bypasses_the_pause(sdb, monkeypatch):
+    from flightbridge import integrations
+    monkeypatch.setattr(requests.Session, "request", lambda self, method, url, *a, **k: Resp({"places": []}))
+    monkeypatch.setattr(quota, "_installed", {})
+    quota.install(sdb)
+    quota.set_pause(sdb, 403, "The caller does not have permission")
+    ok, _ = integrations.check("google_places_api_key", "k")
+    assert ok and quota.pause_state(sdb) is None
+
+
 def test_daily_reset_is_midnight_pacific():
     from datetime import datetime, timezone
     r = quota.next_daily_reset(datetime(2026, 11, 11, 11, 0, tzinfo=timezone.utc))   # 03:00 PST

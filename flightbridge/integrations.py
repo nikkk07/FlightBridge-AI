@@ -52,7 +52,10 @@ def check(name: str, value: str, mailbox_token: str | None = None, mail: dict | 
             return check_mailbox(mail.get("hiox_mail_host") or "host2.dnsinweb.com",
                                  mail.get("hiox_mail_user") or "partnership@weoneaviation.in", value)
         if name == "google_places_api_key":
+            from .research import quota
             from .research.places import PlacesError, search
+            if quota._installed.get("url"):
+                quota.clear_pause(quota._installed["url"])   # a person pressing Test always gets a real answer from Google
             try:
                 search("flight training school", None, "GB", api_key=value, field_mask="places.id")
                 return True, "Connected. Website search can run."
