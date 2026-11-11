@@ -188,6 +188,31 @@ def test_api_error_marks_square_and_stage_reports_it(sdb):
     assert q(sdb, "SELECT status, error FROM flightbridge.sweep_cell WHERE status='error'")[0][1].startswith("Places API 400")
 
 
+@pytest.mark.parametrize("code,msg", [(403, "The caller does not have permission"),
+                                      (429, "Quota exceeded for quota metric 'SearchTextRequest' and limit 'SearchTextRequest per day'"),
+                                      (503, "Service unavailable")])
+def test_google_refusing_the_key_never_burns_squares(sdb, code, msg):
+    class Refused:
+        def post(self, *a, **k):
+            return Resp({"error": {"message": msg}}, code)
+    for _ in range(3):
+        with pytest.raises(PlacesError):
+            sweep.run(sdb, max_calls=9, session=Refused())
+    assert q(sdb, "SELECT count(*) FROM flightbridge.sweep_cell WHERE status='error'")[0][0] == 0
+    assert q(sdb, "SELECT count(*) FROM flightbridge.sweep_cell WHERE status='queued'")[0][0] == 3
+
+
+def test_squares_refused_earlier_are_queued_again(sdb):
+    sweep.seed(sdb)
+    with psycopg.connect(sdb, autocommit=True) as c:
+        c.execute("""UPDATE flightbridge.sweep_cell SET status='error', error='Places API 403: The caller does not have permission'
+                     WHERE id = (SELECT min(id) FROM flightbridge.sweep_cell)""")
+        c.execute("""UPDATE flightbridge.sweep_cell SET status='error', error='Places API 400: bad square'
+                     WHERE id = (SELECT max(id) FROM flightbridge.sweep_cell)""")
+    assert sweep.requeue_refused(sdb) == 1
+    assert q(sdb, "SELECT error FROM flightbridge.sweep_cell WHERE status='error'") == [("Places API 400: bad square",)]
+
+
 def test_run_spends_nothing_below_three_calls(sdb):
     g = FakeGoogle({})
     assert sweep.run(sdb, max_calls=2, session=g)["squares"] == 0 and g.calls == []

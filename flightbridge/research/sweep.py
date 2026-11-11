@@ -16,6 +16,7 @@ country) before anything is created, and logged in flightbridge.detection with i
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from .. import db
@@ -156,6 +157,24 @@ def record_place(database_url: str, p: dict, cell: dict) -> tuple | None:
     return oid, is_new
 
 
+def _account_level(exc: Exception) -> bool:
+    """Google errors about the key, billing or quota rather than about the square being searched."""
+    m = re.search(r"Places API (\d{3})", str(exc))
+    return bool(m) and (m.group(1) in ("401", "403", "429") or m.group(1).startswith("5"))
+
+
+def requeue_refused(database_url: str) -> int:
+    """Squares marked 'error' only because Google refused the call are put back in the queue."""
+    with db.tx(database_url) as conn:
+        n = conn.execute("""UPDATE flightbridge.sweep_cell SET status='queued'
+                            WHERE status='error' AND error ~ '^Places API (401|403|429|5[0-9][0-9])'""").rowcount
+        if n:
+            conn.execute("""UPDATE flightbridge.sweep_country k SET finished_at=NULL,
+                              cells_done = (SELECT count(*) FROM flightbridge.sweep_cell c WHERE c.country=k.country
+                                             AND c.pass=k.pass AND c.status IN ('done','split','error'))""")
+    return n
+
+
 def scan_cell(database_url: str, cell: dict, session=None) -> dict:
     """Search one square (up to 3 pages). Returns {results, schools, new, calls, split}."""
     with db.tx(database_url) as conn:
@@ -182,9 +201,12 @@ def scan_cell(database_url: str, cell: dict, session=None) -> dict:
                 break
     except PlacesError as exc:
         with db.tx(database_url) as conn:
-            # quota reached: put the square back untouched; any other API error: record it and move on
-            if isinstance(exc, quota.QuotaExceeded):
-                conn.execute("UPDATE flightbridge.sweep_cell SET status='queued' WHERE id=%s", (cell["id"],))
+            # our own free-limit guard, or Google refusing the key/project (403 permission, 429 daily quota, 401, 5xx):
+            # the square was never searched, so it goes back in the queue and is tried again on a later cycle.
+            # Only an error about this particular square (e.g. 400 bad request) marks it as failed.
+            if isinstance(exc, quota.QuotaExceeded) or _account_level(exc):
+                conn.execute("UPDATE flightbridge.sweep_cell SET status='queued', error=%s WHERE id=%s",
+                             (str(exc)[:500], cell["id"]))
             else:
                 conn.execute("UPDATE flightbridge.sweep_cell SET status='error', error=%s, calls=calls+%s WHERE id=%s",
                              (str(exc)[:500], out["calls"], cell["id"]))
@@ -219,12 +241,15 @@ def scan_cell(database_url: str, cell: dict, session=None) -> dict:
 def run(database_url: str, max_calls: int | None = None, session=None) -> dict:
     """One sweep step: scan squares while the paced allowance lasts (a square needs room for 3 pages)."""
     _ensure_seeded(database_url)
+    requeued = requeue_refused(database_url)
     resweep = _maybe_resweep(database_url)
     budget = quota.allowance(database_url, SKU) if max_calls is None else max_calls
     budget = min(budget, MAX_CALLS_PER_CYCLE) if max_calls is None else budget
     out = {"squares": 0, "calls": 0, "results": 0, "schools": 0, "new": 0, "split": 0, "allowance": budget}
     if resweep:
         out["resweep"] = resweep
+    if requeued:
+        out["requeued"] = requeued
     while budget - out["calls"] >= PAGES:
         cells = _next_cells(database_url, 1)
         if not cells:
