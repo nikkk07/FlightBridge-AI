@@ -126,6 +126,34 @@ def test_quota_install_meters_real_requests_calls(sdb, monkeypatch):
     assert len(seen) == 4                                                         # refused before leaving the machine
 
 
+def test_google_refusal_is_not_counted_pauses_and_resumes_by_itself(sdb, monkeypatch):
+    from datetime import datetime, timezone
+    answers, seen = [Resp({"error": {"message": "Quota exceeded ... per day"}}, 429)], []
+    monkeypatch.setattr(requests.Session, "request",
+                        lambda self, method, url, *a, **k: seen.append(url) or (answers.pop(0) if answers else Resp({})))
+    monkeypatch.setattr(quota, "_installed", {})
+    quota.install(sdb)
+    post = lambda: requests.post("https://places.googleapis.com/v1/places:searchText", json={},
+                                 headers={"X-Goog-FieldMask": sweep.MASK})
+    post()
+    assert quota.used(sdb) == {"text_search_pro": 0}                             # refused, so not billed
+    st = quota.pause_state(sdb)
+    assert st["code"] == 429 and datetime.fromisoformat(st["until"]) == quota.next_daily_reset(datetime.fromisoformat(st["since"]))
+    with pytest.raises(PlacesError, match="Places API 429"):
+        post()                                                                    # paused: Google is not called
+    assert len(seen) == 1
+    with psycopg.connect(sdb, autocommit=True) as c:                              # the daily reset has passed
+        c.execute("UPDATE flightbridge.system_setting SET value = jsonb_set(value, '{until}', '\"2000-01-01T00:00:00+00:00\"') WHERE key='google_pause'")
+    post()
+    assert quota.pause_state(sdb) is None and quota.used(sdb) == {"text_search_pro": 1}
+
+
+def test_daily_reset_is_midnight_pacific():
+    from datetime import datetime, timezone
+    r = quota.next_daily_reset(datetime(2026, 11, 11, 11, 0, tzinfo=timezone.utc))   # 03:00 PST
+    assert r == datetime(2026, 11, 12, 8, 5, tzinfo=timezone.utc)
+
+
 # ---------------------------------------------------------------- world sweep
 def test_seed_queues_every_square_in_country_order(sdb):
     out = sweep.seed(sdb)

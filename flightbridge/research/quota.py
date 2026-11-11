@@ -10,11 +10,18 @@ flightbridge.google_usage BEFORE it is made, in one atomic statement shared by e
 cap the call is refused with QuotaExceeded (a PlacesError, so the stage stops and reports it) until the next month.
 
 install(database_url) wraps requests.Session.request for places.googleapis.com, so engine code needs no changes.
+
+When Google refuses a call it is not billed, so the count is given back. Google refusing the key also pauses every
+Google call (no pointless retries) and resumes by itself: a daily-quota 429 until Google's daily reset (midnight
+Pacific time), a 403/401 for one hour, then a single test call decides. The pause is stored in
+system_setting 'google_pause' so every runner (CRM server, Mac) shares it and the CRM can show it.
 """
 from __future__ import annotations
 
+import json
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
 
 from .. import db
@@ -88,6 +95,53 @@ def used(database_url: str) -> dict:
     return {sku: calls for sku, calls in rows}
 
 
+def release(database_url: str, sku: str, n: int = 1) -> None:
+    """Give back n counted calls (Google refused them, so they were not billed)."""
+    with db.tx(database_url) as conn:
+        conn.execute("""UPDATE flightbridge.google_usage SET calls = greatest(0, calls - %s), updated_at = now()
+                        WHERE month=%s AND sku=%s""", (n, month_start(), sku))
+
+
+PAUSE_KEY = "google_pause"
+
+
+def next_daily_reset(now: datetime | None = None) -> datetime:
+    """Google's per-day quotas reset at midnight Pacific time."""
+    pt = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("America/Los_Angeles"))
+    return (pt + timedelta(days=1)).replace(hour=0, minute=5, second=0, microsecond=0).astimezone(timezone.utc)
+
+
+def pause_state(database_url: str) -> dict | None:
+    with db.tx(database_url) as conn:
+        row = conn.execute("SELECT value FROM flightbridge.system_setting WHERE key=%s", (PAUSE_KEY,)).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def set_pause(database_url: str, code: int, message: str, now: datetime | None = None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    until = next_daily_reset(now) if code == 429 else now + timedelta(hours=1)
+    state = {"code": code, "message": message[:300], "until": until.isoformat(), "since": now.isoformat()}
+    with db.tx(database_url) as conn:
+        old = conn.execute("SELECT value FROM flightbridge.system_setting WHERE key=%s", (PAUSE_KEY,)).fetchone()
+        if old and old[0] and old[0].get("since"):
+            state["since"] = old[0]["since"]          # keep when the trouble started
+        conn.execute("""INSERT INTO flightbridge.system_setting (key, value) VALUES (%s, %s)
+                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value""", (PAUSE_KEY, json.dumps(state)))
+    return state
+
+
+def clear_pause(database_url: str) -> None:
+    with db.tx(database_url) as conn:
+        conn.execute("DELETE FROM flightbridge.system_setting WHERE key=%s", (PAUSE_KEY,))
+
+
+def check_pause(database_url: str, now: datetime | None = None) -> None:
+    """Raise without calling Google while a pause is running."""
+    st = pause_state(database_url)
+    if st and datetime.fromisoformat(st["until"]) > (now or datetime.now(timezone.utc)):
+        raise PlacesError(f"Places API {st['code']}: {st['message']} (paused, retrying after {st['until'][:16]} UTC)")
+
+
 def allowance(database_url: str, sku: str, burst: int = 6, now: datetime | None = None) -> int:
     """Calls this SKU may make right now so the month's allowance is spread evenly (plus a small catch-up burst)."""
     now = now or datetime.now(timezone.utc)
@@ -117,8 +171,23 @@ def install(database_url: str) -> None:
                 headers = kwargs.get("headers") or {}
                 mask = next((v for k, v in headers.items() if k.lower() == "x-goog-fieldmask"), None)
                 sku = classify(method, str(url), mask)
+                dbu = _installed["url"]
+                check_pause(dbu)
                 if sku:
-                    reserve(_installed["url"], sku)
+                    reserve(dbu, sku)
+                resp = original(self, method, url, *args, **kwargs)
+                code = getattr(resp, "status_code", 200)
+                if code >= 400 and sku:
+                    release(dbu, sku)                  # refused calls are not billed
+                if code in (401, 403, 429):
+                    try:
+                        msg = resp.json().get("error", {}).get("message", "")
+                    except Exception:
+                        msg = ""
+                    set_pause(dbu, code, msg or f"HTTP {code}")
+                elif code < 400 and pause_state(dbu):
+                    clear_pause(dbu)                   # Google answers again: back to normal
+                return resp
             return original(self, method, url, *args, **kwargs)
 
         requests.Session.request = metered
